@@ -36,8 +36,8 @@ interface ELKNode {
 
 interface ELKEdge {
   id: string;
-  sources?: string[];
-  targets?: string[];
+  sources: string[];
+  targets: string[];
   properties?: {
     inferred?: boolean;
   };
@@ -55,7 +55,7 @@ interface ELKGraph {
  */
 function toELKFormat(
   nodes: TopologyNode[],
-  _edges: TopologyEdge[]
+  edges: TopologyEdge[]
 ): { nodes: ELKNode[]; edges: ELKEdge[] } {
   const elkNodes: ELKNode[] = nodes.map((node) => ({
     id: node.id,
@@ -67,7 +67,14 @@ function toELKFormat(
     },
   }));
 
-  const elkEdges: ELKEdge[] = [];
+  const elkEdges: ELKEdge[] = edges.map((edge) => ({
+    id: edge.id,
+    sources: [edge.source],
+    targets: [edge.target],
+    properties: {
+      inferred: edge.inferred,
+    },
+  }));
 
   return { nodes: elkNodes, edges: elkEdges };
 }
@@ -83,18 +90,6 @@ export async function applyLayout(
   const opts = { ...defaultOptions, ...options };
 
   const { nodes: elkNodes, edges: elkEdges } = toELKFormat(topologyNodes, topologyEdges);
-
-  // Add edges to ELK format
-  elkEdges.push(
-    ...topologyEdges.map((edge) => ({
-      id: edge.id,
-      sources: [edge.source],
-      targets: [edge.target],
-      properties: {
-        inferred: edge.inferred,
-      },
-    }))
-  );
 
   // Define layer-based grouping for ELK using string type for layoutOptions
   const layoutOptions: Record<string, string> = {
@@ -137,8 +132,8 @@ export async function applyLayout(
       const originalEdge = topologyEdges.find((e) => e.id === elkEdge.id);
       return {
         id: elkEdge.id,
-        source: elkEdge.sources?.[0] || '',
-        target: elkEdge.targets?.[0] || '',
+        source: elkEdge.sources[0] || '',
+        target: elkEdge.targets[0] || '',
         type: originalEdge?.inferred ? 'inferred' : 'confirmed',
         animated: originalEdge?.inferred || false,
         style: {

@@ -27,6 +27,13 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
   const [connections, setConnections] = useState<Connections | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const typedSetConnections = (conns: any) => {
+    if (conns && typeof conns === 'object' && !Array.isArray(conns)) {
+      setConnections(conns as Connections);
+    }
+  };
+
   useEffect(() => {
     if (node) {
       loadDetails();
@@ -43,7 +50,7 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
     try {
       // Load connections
       const conns = await getNodeConnections(node.id);
-      setConnections(conns);
+      typedSetConnections(conns);
 
       // If server, load internet path
       if (node.resource_type === 'server') {

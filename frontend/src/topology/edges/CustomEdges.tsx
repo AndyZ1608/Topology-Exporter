@@ -4,6 +4,15 @@
 import React from 'react';
 import { BaseEdge, EdgeProps, getBezierPath, getStraightPath } from '@xyflow/react';
 
+// Extended data type for edges
+interface EdgeData {
+  relationship?: string;
+  confidence?: number;
+  inferred?: boolean;
+  floating_ip?: string;
+  vlan_id?: number | string;
+}
+
 // Confirmed edge (solid line)
 export const ConfirmedEdge: React.FC<EdgeProps> = ({
   id,
@@ -76,7 +85,7 @@ export const InferredEdge: React.FC<EdgeProps> = ({
 };
 
 // Floating IP edge with special styling
-export const FloatingIpEdge: React.FC<EdgeProps> = ({
+export const FloatingIpEdge: React.FC<EdgeProps<EdgeData>> = ({
   id,
   sourceX,
   sourceY,
@@ -97,6 +106,8 @@ export const FloatingIpEdge: React.FC<EdgeProps> = ({
     targetPosition,
   });
 
+  const floatingIp = data?.floating_ip;
+
   return (
     <>
       <BaseEdge
@@ -110,7 +121,7 @@ export const FloatingIpEdge: React.FC<EdgeProps> = ({
         }}
         markerEnd={markerEnd}
       />
-      {data?.floating_ip && labelX && labelY && (
+      {floatingIp && typeof labelX === 'number' && typeof labelY === 'number' && (
         <foreignObject
           x={labelX - 50}
           y={labelY - 10}
@@ -119,7 +130,7 @@ export const FloatingIpEdge: React.FC<EdgeProps> = ({
           className="overflow-visible"
         >
           <div className="text-xs text-cyan-600 bg-cyan-50 px-1 rounded text-center">
-            {data.floating_ip}
+            {floatingIp}
           </div>
         </foreignObject>
       )}
@@ -128,7 +139,7 @@ export const FloatingIpEdge: React.FC<EdgeProps> = ({
 };
 
 // Trunk subport edge
-export const TrunkSubportEdge: React.FC<EdgeProps> = ({
+export const TrunkSubportEdge: React.FC<EdgeProps<EdgeData>> = ({
   id,
   sourceX,
   sourceY,
@@ -145,6 +156,8 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
     targetY,
   });
 
+  const vlanId = data?.vlan_id;
+
   return (
     <>
       <BaseEdge
@@ -157,7 +170,7 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
         }}
         markerEnd={markerEnd}
       />
-      {data?.vlan_id && labelX && labelY && (
+      {vlanId && typeof labelX === 'number' && typeof labelY === 'number' && (
         <foreignObject
           x={labelX - 25}
           y={labelY - 10}
@@ -166,7 +179,7 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
           className="overflow-visible"
         >
           <div className="text-xs text-orange-600 bg-orange-50 px-1 rounded text-center">
-            VLAN {data.vlan_id}
+            VLAN {String(vlanId)}
           </div>
         </foreignObject>
       )}
