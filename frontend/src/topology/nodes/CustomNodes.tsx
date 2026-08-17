@@ -21,9 +21,14 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   );
 };
 
+// Helper to extract node from data
+function getNodeFromProps(data: unknown): TopologyNode {
+  return data as TopologyNode;
+}
+
 // Server/VM Node
 export const ServerNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card node-card-server">
@@ -64,7 +69,7 @@ ServerNode.displayName = 'ServerNode';
 
 // Firewall Node
 export const FirewallNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
   const interfaces = node.properties.interfaces || {};
 
   return (
@@ -113,7 +118,7 @@ FirewallNode.displayName = 'FirewallNode';
 
 // Network Node
 export const NetworkNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card node-card-network">
@@ -154,7 +159,7 @@ NetworkNode.displayName = 'NetworkNode';
 
 // Router Node
 export const RouterNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card node-card-router">
@@ -178,7 +183,7 @@ RouterNode.displayName = 'RouterNode';
 
 // HA Group Node
 export const HAGroupNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
   const members = node.properties.ha_members || [];
 
   return (
@@ -209,7 +214,7 @@ HAGroupNode.displayName = 'HAGroupNode';
 
 // Internet Node
 export const InternetNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card node-card-internet bg-gradient-to-br from-cyan-50 to-blue-50">
@@ -231,7 +236,7 @@ InternetNode.displayName = 'InternetNode';
 
 // Subnet Node
 export const SubnetNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card border-l-4 border-l-teal-400 min-w-[150px]">
@@ -252,7 +257,7 @@ SubnetNode.displayName = 'SubnetNode';
 
 // Default/Unknown Node
 export const DefaultNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = data as TopologyNode;
+  const node = getNodeFromProps(data);
 
   return (
     <div className="node-card border-l-4 border-l-gray-400">

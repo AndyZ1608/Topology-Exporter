@@ -22,12 +22,40 @@ const defaultOptions: ELKLayoutOptions = {
   nodeHeight: 100,
 };
 
+interface ELKNode {
+  id: string;
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
+  properties?: {
+    layer?: string;
+    role?: string;
+  };
+}
+
+interface ELKEdge {
+  id: string;
+  sources?: string[];
+  targets?: string[];
+  properties?: {
+    inferred?: boolean;
+  };
+}
+
+interface ELKGraph {
+  id?: string;
+  children?: ELKNode[];
+  edges?: ELKEdge[];
+  layoutOptions?: Record<string, string | number>;
+}
+
 /**
  * Convert topology data to ELK format
  */
-export function toELKFormat(
+function toELKFormat(
   nodes: TopologyNode[],
-  edges: TopologyEdge[]
+  _edges: TopologyEdge[]
 ): { nodes: ELKNode[]; edges: ELKEdge[] } {
   const elkNodes: ELKNode[] = nodes.map((node) => ({
     id: node.id,
@@ -39,35 +67,9 @@ export function toELKFormat(
     },
   }));
 
-  const elkEdges: ELKEdge[] = edges.map((edge) => ({
-    id: edge.id,
-    sources: [edge.source],
-    targets: [edge.target],
-    properties: {
-      inferred: edge.inferred,
-    },
-  }));
+  const elkEdges: ELKEdge[] = [];
 
   return { nodes: elkNodes, edges: elkEdges };
-}
-
-interface ELKNode {
-  id: string;
-  width: number;
-  height: number;
-  properties: {
-    layer: string;
-    role: string;
-  };
-}
-
-interface ELKEdge {
-  id: string;
-  sources: string[];
-  targets: string[];
-  properties: {
-    inferred: boolean;
-  };
 }
 
 /**
@@ -82,19 +84,31 @@ export async function applyLayout(
 
   const { nodes: elkNodes, edges: elkEdges } = toELKFormat(topologyNodes, topologyEdges);
 
-  // Define layer-based grouping for ELK
-  const layoutOptions = {
+  // Add edges to ELK format
+  elkEdges.push(
+    ...topologyEdges.map((edge) => ({
+      id: edge.id,
+      sources: [edge.source],
+      targets: [edge.target],
+      properties: {
+        inferred: edge.inferred,
+      },
+    }))
+  );
+
+  // Define layer-based grouping for ELK using string type for layoutOptions
+  const layoutOptions: Record<string, string> = {
     'elk.algorithm': 'layered',
-    'elk.layered.spacing.nodeNodeBetweenLayers': opts.spacing,
-    'elk.layered.spacing.edgeNodeBetweenLayers': opts.spacing / 2,
+    'elk.layered.spacing.nodeNodeBetweenLayers': String(opts.spacing),
+    'elk.layered.spacing.edgeNodeBetweenLayers': String(opts.spacing / 2),
     'elk.direction': opts.direction,
     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-    'elk.spacing.nodeNode': opts.spacing,
+    'elk.spacing.nodeNode': String(opts.spacing),
     'elk.padding': '[top=50,left=50,bottom=50,right=50]',
   };
 
   try {
-    const layoutedGraph = await elk.layout({
+    const layoutedGraph: ELKGraph = await elk.layout({
       id: 'root',
       layoutOptions,
       children: elkNodes,

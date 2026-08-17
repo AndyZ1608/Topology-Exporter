@@ -10,9 +10,21 @@ interface DetailsDrawerProps {
   onClose: () => void;
 }
 
+// Connection types
+interface Connection {
+  source: string;
+  target: string;
+  relationship: string;
+}
+
+interface Connections {
+  inbound: Connection[];
+  outbound: Connection[];
+}
+
 const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
   const [internetPath, setInternetPath] = useState<InternetPathResponse | null>(null);
-  const [connections, setConnections] = useState<Record<string, unknown> | null>(null);
+  const [connections, setConnections] = useState<Connections | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -356,11 +368,11 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
           <section>
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Connections</h3>
             <div className="space-y-2 text-sm">
-              {(connections.inbound as Array<{source: string; relationship: string}>)?.length > 0 && (
+              {connections.inbound?.length > 0 && (
                 <div>
                   <div className="text-xs text-gray-500 mb-1">Inbound ({connections.inbound.length})</div>
                   <div className="space-y-1">
-                    {(connections.inbound as Array<{source: string; relationship: string}>).slice(0, 5).map((conn, idx) => (
+                    {connections.inbound.slice(0, 5).map((conn, idx) => (
                       <div key={idx} className="flex items-center gap-2 text-xs">
                         <span className="text-gray-400">←</span>
                         <span className="text-gray-600 truncate">{conn.source.split(':')[1]?.slice(0, 8) || conn.source}</span>
@@ -370,11 +382,11 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
                   </div>
                 </div>
               )}
-              {(connections.outbound as Array<{target: string; relationship: string}>)?.length > 0 && (
+              {connections.outbound?.length > 0 && (
                 <div>
                   <div className="text-xs text-gray-500 mb-1">Outbound ({connections.outbound.length})</div>
                   <div className="space-y-1">
-                    {(connections.outbound as Array<{target: string; relationship: string}>).slice(0, 5).map((conn, idx) => (
+                    {connections.outbound.slice(0, 5).map((conn, idx) => (
                       <div key={idx} className="flex items-center gap-2 text-xs">
                         <span className="text-gray-400">→</span>
                         <span className="text-gray-600 truncate">{conn.target.split(':')[1]?.slice(0, 8) || conn.target}</span>

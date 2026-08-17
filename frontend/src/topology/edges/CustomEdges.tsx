@@ -15,7 +15,6 @@ export const ConfirmedEdge: React.FC<EdgeProps> = ({
   targetPosition,
   style = {},
   markerEnd,
-  data,
 }) => {
   const [edgePath] = getBezierPath({
     sourceX,
@@ -27,18 +26,16 @@ export const ConfirmedEdge: React.FC<EdgeProps> = ({
   });
 
   return (
-    <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{
-          ...style,
-          stroke: '#374151',
-          strokeWidth: 2,
-        }}
-        markerEnd={markerEnd}
-      />
-    </>
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{
+        ...style,
+        stroke: '#374151',
+        strokeWidth: 2,
+      }}
+      markerEnd={markerEnd}
+    />
   );
 };
 
@@ -53,7 +50,6 @@ export const InferredEdge: React.FC<EdgeProps> = ({
   targetPosition,
   style = {},
   markerEnd,
-  data,
 }) => {
   const [edgePath] = getBezierPath({
     sourceX,
@@ -65,19 +61,17 @@ export const InferredEdge: React.FC<EdgeProps> = ({
   });
 
   return (
-    <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{
-          ...style,
-          stroke: '#9ca3af',
-          strokeWidth: 1.5,
-          strokeDasharray: '5,5',
-        }}
-        markerEnd={markerEnd}
-      />
-    </>
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{
+        ...style,
+        stroke: '#9ca3af',
+        strokeWidth: 1.5,
+        strokeDasharray: '5,5',
+      }}
+      markerEnd={markerEnd}
+    />
   );
 };
 
@@ -116,7 +110,7 @@ export const FloatingIpEdge: React.FC<EdgeProps> = ({
         }}
         markerEnd={markerEnd}
       />
-      {data?.floating_ip && (
+      {data?.floating_ip && labelX && labelY && (
         <foreignObject
           x={labelX - 50}
           y={labelY - 10}
@@ -140,8 +134,6 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   markerEnd,
   data,
@@ -149,10 +141,8 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
   const [edgePath, labelX, labelY] = getStraightPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
   });
 
   return (
@@ -167,7 +157,7 @@ export const TrunkSubportEdge: React.FC<EdgeProps> = ({
         }}
         markerEnd={markerEnd}
       />
-      {data?.vlan_id && (
+      {data?.vlan_id && labelX && labelY && (
         <foreignObject
           x={labelX - 25}
           y={labelY - 10}
@@ -191,18 +181,14 @@ export const HAMemberEdge: React.FC<EdgeProps> = ({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   markerEnd,
 }) => {
   const [edgePath] = getStraightPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
   });
 
   return (
@@ -230,7 +216,6 @@ export const InternetUplinkEdge: React.FC<EdgeProps> = ({
   targetPosition,
   style = {},
   markerEnd,
-  data,
 }) => {
   const [edgePath] = getBezierPath({
     sourceX,

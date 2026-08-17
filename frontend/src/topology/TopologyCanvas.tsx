@@ -23,13 +23,30 @@ import '@xyflow/react/dist/style.css';
 import { nodeTypes } from './nodes/CustomNodes';
 import { edgeTypes } from './edges/CustomEdges';
 import { applyLayout, LAYOUT_DIRECTIONS, LayoutDirection } from './layout';
-import type { TopologyNode, TopologyEdge, TopologyFilters, InternetPathResponse } from '@/types';
+import type { TopologyNode, TopologyEdge, TopologyFilters } from '@/types';
 import { getTopology, getInternetPath } from '@/api/topology';
 
 interface TopologyCanvasProps {
   filters?: TopologyFilters;
   onNodeClick?: (node: TopologyNode | null) => void;
   onEdgeClick?: (edge: TopologyEdge | null) => void;
+}
+
+// Helper type cast
+function castToTopologyNode(data: unknown): TopologyNode {
+  return data as TopologyNode;
+}
+
+function castToTopologyEdge(edge: Edge): TopologyEdge {
+  return {
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    relationship: (edge.data?.relationship as TopologyEdge['relationship']) || 'attached_to',
+    inferred: Boolean(edge.data?.inferred),
+    confidence: Number(edge.data?.confidence) || 1.0,
+    properties: edge.data || {},
+  };
 }
 
 const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
@@ -106,16 +123,8 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
       setLayouting(true);
       try {
         // Re-derive topology data from nodes
-        const topologyNodes: TopologyNode[] = nodes.map((n) => n.data as TopologyNode);
-        const topologyEdges: TopologyEdge[] = edges.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          relationship: (e.data?.relationship as string) || 'unknown',
-          inferred: e.data?.inferred || false,
-          confidence: e.data?.confidence || 1.0,
-          properties: e.data || {},
-        }));
+        const topologyNodes: TopologyNode[] = nodes.map((n) => castToTopologyNode(n.data));
+        const topologyEdges: TopologyEdge[] = edges.map((e) => castToTopologyEdge(e));
 
         const elkDirection = LAYOUT_DIRECTIONS[direction].elk;
         const { nodes: layoutedNodes, edges: layoutedEdges } = await applyLayout(
@@ -152,8 +161,8 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
   // Handle node click
   const handleNodeClick = useCallback(
-    (event: React.MouseEvent, node: Node) => {
-      const topologyNode = node.data as TopologyNode;
+    (_event: React.MouseEvent, node: Node) => {
+      const topologyNode = castToTopologyNode(node.data);
       onNodeClick?.(topologyNode);
 
       // If it's a server, fetch and highlight internet path
@@ -166,16 +175,8 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
   // Handle edge click
   const handleEdgeClick = useCallback(
-    (event: React.MouseEvent, edge: Edge) => {
-      const topologyEdge: TopologyEdge = {
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        relationship: (edge.data?.relationship as string) || 'unknown',
-        inferred: edge.data?.inferred || false,
-        confidence: edge.data?.confidence || 1.0,
-        properties: edge.data || {},
-      };
+    (_event: React.MouseEvent, edge: Edge) => {
+      const topologyEdge = castToTopologyEdge(edge);
       onEdgeClick?.(topologyEdge);
     },
     [onEdgeClick]
@@ -288,7 +289,7 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
         <MiniMap
           className="bg-white border border-gray-200 rounded-lg shadow-sm"
           nodeColor={(node) => {
-            const role = (node.data as TopologyNode)?.role;
+            const role = castToTopologyNode(node.data)?.role;
             switch (role) {
               case 'vm':
                 return '#3b82f6';
