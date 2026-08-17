@@ -1,0 +1,31 @@
+# OpenStack Topology Explorer - Backend Dependencies
+
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# OpenStack
+openstacksdk>=1.5.0
+
+# Database (SQLAlchemy + Alembic for migrations)
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+# SQLite for development
+# For PostgreSQL in production: psycopg2-binary>=2.9.9
+
+# Configuration
+pyyaml>=6.0.1
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+httpx>=0.26.0
+
+# Utilities
+python-multipart>=0.0.6
+
+# Production
+gunicorn>=21.2.0

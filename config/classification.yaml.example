@@ -1,0 +1,95 @@
+# Device Classification Configuration
+# This file defines patterns for classifying OpenStack servers as firewalls, load balancers, etc.
+
+devices:
+  firewall:
+    patterns:
+      - "^PAN[0-9]+"           # Palo Alto
+      - "(?i)palo"            # Case-insensitive palo
+      - "(?i)fortigate"        # Fortinet
+      - "(?i)checkpoint"       # Check Point
+      - "(?i)cloudguard"       # Check Point CloudGuard
+      - "(?i)juniper"          # Juniper
+      - "(?i)srx"              # Juniper SRX
+      - "(?i)asa"               # Cisco ASA
+      - "(?i)firepower"        # Cisco Firepower
+      - "(?i)pfsense"          # pfSense
+      - "(?i)opnsense"         # OPNsense
+      - "(?i)vyos"             # VyOS
+      - "(?i)untangle"         # Untangle
+      - "(?i)sonicwall"        # SonicWall
+
+  load_balancer:
+    patterns:
+      - "(?i)haproxy"
+      - "(?i)nginx-lb"
+      - "(?i)loadbalancer"
+      - "(?i)octavia"
+      - "(?i)lb-"
+      - "(?i)elb-"
+
+  kubernetes:
+    patterns:
+      - "(?i)k8s"
+      - "(?i)kubernetes"
+      - "(?i)worker"
+      - "(?i)node-"
+      - "(?i)control-plane"
+      - "(?i)master"
+
+  router:
+    patterns:
+      - "(?i)neutron-router"
+      - "(?i)router-"
+
+# Interface classification patterns
+interfaces:
+  WAN:
+    description: "Wide Area Network interface (connects to external/provider networks)"
+    network_patterns:
+      - "(?i)wan"
+      - "(?i)external"
+      - "(?i)provider"
+      - "(?i)uplink"
+      - "(?i)internet"
+
+  LAN:
+    description: "Local Area Network interface (connects to internal networks)"
+    network_patterns:
+      - "(?i)lan"
+      - "(?i)internal"
+      - "(?i)private"
+      - "(?i)vlan"
+      - "(?i)segment"
+
+  MGMT:
+    description: "Management interface (for device administration)"
+    network_patterns:
+      - "(?i)mgmt"
+      - "(?i)management"
+      - "(?i)admin"
+      - "(?i)console"
+
+  TRUNK:
+    description: "Trunk interface (carries multiple VLANs)"
+    network_patterns:
+      - "(?i)trunk"
+      - "(?i)tagged"
+
+  HA:
+    description: "High Availability interface (for HA heartbeat/sync)"
+    network_patterns:
+      - "(?i)ha"
+      - "(?i)heartbeat"
+      - "(?i)sync"
+      - "(?i)backup"
+
+# Network classification for Internet detection
+networks:
+  internet_egress:
+    patterns:
+      - "(?i)wan"
+      - "(?i)internet"
+      - "(?i)external"
+      - "(?i)public"
+      - "(?i)nat"

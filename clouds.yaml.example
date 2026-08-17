@@ -1,0 +1,25 @@
+# OpenStack clouds.yaml example
+# Place this file at ~/.config/openstack/clouds.yaml or set CLOUDS_YAML_PATH
+
+clouds:
+  topology:
+    auth:
+      auth_url: https://keystone.example.com/v3
+      username: topology-reader
+      password: CHANGE_ME
+      project_name: admin
+      user_domain_name: Default
+      project_domain_name: Default
+    region_name: RegionOne
+    interface: internal
+    identity_api_version: 3
+
+  # Example with application credential
+  topology-appcred:
+    auth:
+      auth_url: https://keystone.example.com/v3
+      application_credential_id: YOUR_APP_CRED_ID
+      application_credential_secret: YOUR_APP_CRED_SECRET
+    region_name: RegionOne
+    interface: internal
+    identity_api_version: 3
