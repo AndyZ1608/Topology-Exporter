@@ -4,15 +4,6 @@
 import React from 'react';
 import { BaseEdge, EdgeProps, getBezierPath, getStraightPath } from '@xyflow/react';
 
-// Extended data type for edges
-interface EdgeData {
-  relationship?: string;
-  confidence?: number;
-  inferred?: boolean;
-  floating_ip?: string;
-  vlan_id?: number | string;
-}
-
 // Confirmed edge (solid line)
 export const ConfirmedEdge: React.FC<EdgeProps> = ({
   id,
@@ -85,7 +76,7 @@ export const InferredEdge: React.FC<EdgeProps> = ({
 };
 
 // Floating IP edge with special styling
-export const FloatingIpEdge: React.FC<EdgeProps<EdgeData>> = ({
+export const FloatingIpEdge: React.FC<EdgeProps> = ({
   id,
   sourceX,
   sourceY,
@@ -106,22 +97,22 @@ export const FloatingIpEdge: React.FC<EdgeProps<EdgeData>> = ({
     targetPosition,
   });
 
-  const floatingIp = data?.floating_ip;
+  const floatingIp = data && typeof data === 'object' ? (data as Record<string, unknown>).floating_ip : null;
 
-  return (
-    <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{
-          ...style,
-          stroke: '#06b6d4',
-          strokeWidth: 1.5,
-          strokeDasharray: '3,3',
-        }}
-        markerEnd={markerEnd}
-      />
-      {floatingIp && typeof labelX === 'number' && typeof labelY === 'number' && (
+  if (floatingIp && typeof labelX === 'number' && typeof labelY === 'number') {
+    return (
+      <>
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          style={{
+            ...style,
+            stroke: '#06b6d4',
+            strokeWidth: 1.5,
+            strokeDasharray: '3,3',
+          }}
+          markerEnd={markerEnd}
+        />
         <foreignObject
           x={labelX - 50}
           y={labelY - 10}
@@ -130,16 +121,30 @@ export const FloatingIpEdge: React.FC<EdgeProps<EdgeData>> = ({
           className="overflow-visible"
         >
           <div className="text-xs text-cyan-600 bg-cyan-50 px-1 rounded text-center">
-            {floatingIp}
+            {String(floatingIp)}
           </div>
         </foreignObject>
-      )}
-    </>
+      </>
+    );
+  }
+
+  return (
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{
+        ...style,
+        stroke: '#06b6d4',
+        strokeWidth: 1.5,
+        strokeDasharray: '3,3',
+      }}
+      markerEnd={markerEnd}
+    />
   );
 };
 
 // Trunk subport edge
-export const TrunkSubportEdge: React.FC<EdgeProps<EdgeData>> = ({
+export const TrunkSubportEdge: React.FC<EdgeProps> = ({
   id,
   sourceX,
   sourceY,
@@ -156,21 +161,21 @@ export const TrunkSubportEdge: React.FC<EdgeProps<EdgeData>> = ({
     targetY,
   });
 
-  const vlanId = data?.vlan_id;
+  const vlanId = data && typeof data === 'object' ? (data as Record<string, unknown>).vlan_id : null;
 
-  return (
-    <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{
-          ...style,
-          stroke: '#f97316',
-          strokeWidth: 1.5,
-        }}
-        markerEnd={markerEnd}
-      />
-      {vlanId && typeof labelX === 'number' && typeof labelY === 'number' && (
+  if (vlanId && typeof labelX === 'number' && typeof labelY === 'number') {
+    return (
+      <>
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          style={{
+            ...style,
+            stroke: '#f97316',
+            strokeWidth: 1.5,
+          }}
+          markerEnd={markerEnd}
+        />
         <foreignObject
           x={labelX - 25}
           y={labelY - 10}
@@ -182,8 +187,21 @@ export const TrunkSubportEdge: React.FC<EdgeProps<EdgeData>> = ({
             VLAN {String(vlanId)}
           </div>
         </foreignObject>
-      )}
-    </>
+      </>
+    );
+  }
+
+  return (
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{
+        ...style,
+        stroke: '#f97316',
+        strokeWidth: 1.5,
+      }}
+      markerEnd={markerEnd}
+    />
   );
 };
 
@@ -254,8 +272,9 @@ export const InternetUplinkEdge: React.FC<EdgeProps> = ({
   );
 };
 
-// Export all edge types
-export const edgeTypes = {
+// Export all edge types - using eslint disable for complex React Flow typing
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export const edgeTypes: Record<string, React.ComponentType<any>> = {
   confirmed: ConfirmedEdge,
   inferred: InferredEdge,
   floating_ip: FloatingIpEdge,
@@ -263,3 +282,4 @@ export const edgeTypes = {
   ha_member: HAMemberEdge,
   internet_uplink: InternetUplinkEdge,
 };
+/* eslint-enable @typescript-eslint/no-explicit-any */
