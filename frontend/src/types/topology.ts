@@ -16,9 +16,12 @@ export interface NodeProperties {
   interfaces: Record<string, {
     role?: string;
     network_id?: string;
+    network_name?: string;
     mac_address?: string;
     ip_addresses?: string[];
+    subnet_ids?: string[];
     security_groups?: string[];
+    subnets?: Array<{ id: string; name?: string; cidr?: string }>;
   }>;
   vm_count: number;
   flavor?: string;
@@ -29,13 +32,25 @@ export interface NodeProperties {
   };
   floating_ips: string[];
   security_groups: string[];
+  subnets: Array<{
+    id: string;
+    name?: string;
+    cidr?: string;
+    gateway_ip?: string;
+  }>;
+  router_interfaces: Array<{
+    port_id?: string;
+    network_id?: string;
+    network_name?: string;
+    subnets: string[];
+  }>;
 }
 
 export interface TopologyNode {
   id: string;
   resource_id: string;
-  resource_type: 'server' | 'network' | 'subnet' | 'router' | 'floatingip' | 'trunk' | 'ha_group' | 'firewall' | 'firewall_member' | 'internet';
-  role: 'vm' | 'firewall' | 'load_balancer' | 'router' | 'network' | 'subnet' | 'internet' | 'ha_group' | 'unknown';
+  resource_type: 'server' | 'network' | 'subnet' | 'router' | 'floatingip' | 'trunk' | 'firewall' | 'firewall_member' | 'internet';
+  role: 'vm' | 'firewall' | 'load_balancer' | 'router' | 'network' | 'subnet' | 'internet' | 'unknown';
   name: string;
   project_id?: string;
   project_name?: string;
@@ -54,9 +69,10 @@ export interface EdgeProperties {
   floating_ip?: string;
   fixed_ip?: string;
   port_id?: string;
+  network_id?: string;
   subnet_id?: string;
+  mac_address?: string;
   trunk_id?: string;
-  mapping_source?: string;
 }
 
 export interface TopologyEdge {
@@ -126,11 +142,7 @@ export interface TopologyFilters {
   resourceTypes: string[];
   status: string;
   search: string;
-  view: 'traffic' | 'infrastructure' | 'project';
 }
-
-// View modes
-export type ViewMode = 'traffic' | 'infrastructure' | 'project';
 
 // Node roles for display
 export const NODE_ROLE_LABELS: Record<string, string> = {
@@ -140,7 +152,6 @@ export const NODE_ROLE_LABELS: Record<string, string> = {
   network: 'Network',
   subnet: 'Subnet',
   load_balancer: 'Load Balancer',
-  ha_group: 'HA Group',
   internet: 'Internet',
   unknown: 'Unknown',
 };
@@ -153,6 +164,5 @@ export const RESOURCE_TYPE_TO_ROLE: Record<string, string> = {
   router: 'router',
   floatingip: 'floatingip',
   trunk: 'trunk',
-  ha_group: 'ha_group',
   internet: 'internet',
 };

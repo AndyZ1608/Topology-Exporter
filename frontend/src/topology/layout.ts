@@ -1,248 +1,212 @@
-/**
- * Topology layout utilities using ELK.js for hierarchical layout.
- */
+/** Build the single operational Traffic Topology and lay it out with ELK. */
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { Node, Edge } from '@xyflow/react';
-import type { TopologyNode, TopologyEdge } from '@/types';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
+import type { NodeProperties, TopologyEdge, TopologyNode } from '@/types';
 
-// ELK.js initialization options
 const elk = new ELK();
+const VM_WIDTH = 150;
+const VM_HEIGHT = 58;
+const GROUP_HEADER = 72;
+const GROUP_PADDING = 18;
+const GRID_GAP = 14;
 
-export interface ELKLayoutOptions {
-  direction: 'DOWN' | 'UP' | 'RIGHT' | 'LEFT';
-  spacing: number;
-  nodeWidth: number;
-  nodeHeight: number;
+interface GroupSpec {
+  node: TopologyNode;
+  children: TopologyNode[];
+  width: number;
+  height: number;
+  columns: number;
 }
-
-const defaultOptions: ELKLayoutOptions = {
-  direction: 'DOWN',
-  spacing: 50,
-  nodeWidth: 200,
-  nodeHeight: 100,
-};
 
 interface ELKNode {
   id: string;
-  width?: number;
-  height?: number;
+  width: number;
+  height: number;
   x?: number;
   y?: number;
-  properties?: {
-    layer?: string;
-    role?: string;
+}
+
+function emptyProperties(): NodeProperties {
+  return {
+    ips: [], mac_addresses: [], is_external: false, is_shared: false,
+    ha_members: [], interfaces: {}, vm_count: 0,
+    metadata: { synthetic: true }, floating_ips: [], security_groups: [], subnets: [],
+    router_interfaces: [],
   };
 }
 
-interface ELKEdge {
-  id: string;
-  sources: string[];
-  targets: string[];
-  properties?: {
-    inferred?: boolean;
+function unconnectedGroup(): TopologyNode {
+  return {
+    id: 'group:unconnected', resource_id: 'unconnected', resource_type: 'network',
+    role: 'network', name: 'Unconnected / Unknown', status: 'UNKNOWN', layer: 'network',
+    properties: emptyProperties(), tags: [], aggregated: false, aggregated_count: 0,
   };
 }
 
-interface ELKGraph {
-  id?: string;
-  children?: ELKNode[];
-  edges?: ELKEdge[];
-  layoutOptions?: Record<string, string | number>;
+function groupDimensions(vmCount: number): Pick<GroupSpec, 'width' | 'height' | 'columns'> {
+  if (vmCount === 0) return { width: 230, height: 98, columns: 1 };
+  const columns = Math.min(5, Math.max(1, Math.ceil(Math.sqrt(vmCount))));
+  const rows = Math.ceil(vmCount / columns);
+  return {
+    columns,
+    width: GROUP_PADDING * 2 + columns * VM_WIDTH + (columns - 1) * GRID_GAP,
+    height: GROUP_HEADER + GROUP_PADDING + rows * VM_HEIGHT + (rows - 1) * GRID_GAP,
+  };
 }
 
-/**
- * Convert topology data to ELK format
- */
-function toELKFormat(
-  nodes: TopologyNode[],
-  edges: TopologyEdge[]
-): { nodes: ELKNode[]; edges: ELKEdge[] } {
-  const elkNodes: ELKNode[] = nodes.map((node) => ({
-    id: node.id,
-    width: defaultOptions.nodeWidth,
-    height: defaultOptions.nodeHeight,
-    properties: {
-      layer: node.layer,
-      role: node.role,
-    },
-  }));
-
-  const elkEdges: ELKEdge[] = edges.map((edge) => ({
-    id: edge.id,
-    // Traffic edges point VM -> Internet. Reverse them only for placement so
-    // the operational hierarchy renders Internet -> VM from top to bottom.
-    sources: [edge.target],
-    targets: [edge.source],
-    properties: {
-      inferred: edge.inferred,
-    },
-  }));
-
-  return { nodes: elkNodes, edges: elkEdges };
+function displayNodeType(node: TopologyNode): string {
+  if (node.resource_type === 'network') return 'networkGroup';
+  if (node.resource_type === 'server') {
+    if (node.role === 'firewall') return 'firewall';
+    if (node.role === 'router') return 'appliance';
+    return 'server';
+  }
+  if (node.resource_type === 'router') return 'router';
+  if (node.resource_type === 'internet') return 'internet';
+  return 'default';
 }
 
-/**
- * Apply hierarchical layout using ELK.js
- */
 export async function applyLayout(
   topologyNodes: TopologyNode[],
   topologyEdges: TopologyEdge[],
-  options: Partial<ELKLayoutOptions> = {}
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
-  const opts = { ...defaultOptions, ...options };
+  const operationalNodes = topologyNodes.filter((node) =>
+    ['server', 'network', 'router', 'internet'].includes(node.resource_type),
+  );
+  const nodeById = new Map(operationalNodes.map((node) => [node.id, node]));
+  const servers = operationalNodes.filter((node) => node.resource_type === 'server');
+  const networks = operationalNodes.filter((node) => node.resource_type === 'network');
+  const attachedNetworks = new Map<string, Set<string>>();
 
-  const { nodes: elkNodes, edges: elkEdges } = toELKFormat(topologyNodes, topologyEdges);
-
-  // Define layer-based grouping for ELK using string type for layoutOptions
-  const layoutOptions: Record<string, string> = {
-    'elk.algorithm': 'layered',
-    'elk.layered.spacing.nodeNodeBetweenLayers': String(opts.spacing),
-    'elk.layered.spacing.edgeNodeBetweenLayers': String(opts.spacing / 2),
-    'elk.direction': opts.direction,
-    'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-    'elk.spacing.nodeNode': String(opts.spacing),
-    'elk.padding': '[top=50,left=50,bottom=50,right=50]',
-  };
-
-  try {
-    const layoutedGraph: ELKGraph = await elk.layout({
-      id: 'root',
-      layoutOptions,
-      children: elkNodes,
-      edges: elkEdges,
-    });
-
-    // Convert back to React Flow format
-    const flowNodes: Node[] = (layoutedGraph.children || []).map((elkNode) => {
-      const originalNode = topologyNodes.find((n) => n.id === elkNode.id);
-      return {
-        id: elkNode.id,
-        type: getNodeType(originalNode?.role || 'vm'),
-        position: {
-          x: elkNode.x || 0,
-          y: elkNode.y || 0,
-        },
-        data: {
-          ...originalNode,
-          width: elkNode.width || opts.nodeWidth,
-          height: elkNode.height || opts.nodeHeight,
-        },
-      };
-    });
-
-    const flowEdges: Edge[] = (layoutedGraph.edges || []).map((elkEdge) => {
-      const originalEdge = topologyEdges.find((e) => e.id === elkEdge.id);
-      return {
-        id: elkEdge.id,
-        source: originalEdge?.source || '',
-        target: originalEdge?.target || '',
-        type: originalEdge?.inferred ? 'inferred' : 'confirmed',
-        animated: originalEdge?.inferred || false,
-        style: {
-          strokeDasharray: originalEdge?.inferred ? '5,5' : undefined,
-          stroke: originalEdge?.inferred ? '#9ca3af' : '#374151',
-        },
-        data: {
-          relationship: originalEdge?.relationship,
-          confidence: originalEdge?.confidence,
-          inferred: originalEdge?.inferred,
-        },
-      };
-    });
-
-    return { nodes: flowNodes, edges: flowEdges };
-  } catch (error) {
-    console.error('Layout error:', error);
-    // Fallback to simple grid layout
-    return fallbackLayout(topologyNodes, topologyEdges);
-  }
-}
-
-/**
- * Fallback grid layout when ELK fails
- */
-function fallbackLayout(
-  nodes: TopologyNode[],
-  edges: TopologyEdge[]
-): { nodes: Node[]; edges: Edge[] } {
-  // Group by layer
-  const layers: Record<string, TopologyNode[]> = {};
-  for (const node of nodes) {
-    const layer = node.layer;
-    if (!layers[layer]) layers[layer] = [];
-    layers[layer].push(node);
+  for (const edge of topologyEdges) {
+    if (edge.relationship !== 'attached_to') continue;
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
+    const serverId = nodeById.get(edge.source)?.resource_type === 'server' ? edge.source : edge.target;
+    const networkId = serverId === edge.source ? edge.target : edge.source;
+    if (nodeById.get(networkId)?.resource_type !== 'network') continue;
+    if (!attachedNetworks.has(serverId)) attachedNetworks.set(serverId, new Set());
+    attachedNetworks.get(serverId)?.add(networkId);
   }
 
-  // Layer order
-  const layerOrder = ['internet', 'external', 'gateway', 'network', 'workload'];
-  const sortedLayers = layerOrder.filter((l) => layers[l]);
+  const childrenByGroup = new Map<string, TopologyNode[]>();
+  const parentByServer = new Map<string, string>();
+  for (const server of servers) {
+    const memberships = [...(attachedNetworks.get(server.id) || [])];
+    const parentId = memberships.length === 1
+      ? memberships[0]
+      : memberships.length === 0 ? 'group:unconnected' : undefined;
+    if (!parentId) continue;
+    parentByServer.set(server.id, parentId);
+    const children = childrenByGroup.get(parentId) || [];
+    children.push(server);
+    childrenByGroup.set(parentId, children);
+  }
 
-  // Assign positions
-  const flowNodes: Node[] = [];
-  const spacingX = 250;
-  const spacingY = 150;
-  const startY = 50;
+  const groupNodes = [...networks];
+  if (childrenByGroup.has('group:unconnected')) groupNodes.push(unconnectedGroup());
+  const groupSpecs = new Map<string, GroupSpec>();
+  for (const network of groupNodes.sort((a, b) => a.name.localeCompare(b.name))) {
+    const children = (childrenByGroup.get(network.id) || []).sort((a, b) => a.name.localeCompare(b.name));
+    groupSpecs.set(network.id, { node: network, children, ...groupDimensions(children.length) });
+  }
 
-  for (let layerIdx = 0; layerIdx < sortedLayers.length; layerIdx++) {
-    const layer = sortedLayers[layerIdx];
-    const layerNodes = layers[layer];
-    const y = startY + layerIdx * spacingY;
+  const standaloneNodes = operationalNodes.filter(
+    (node) => node.resource_type !== 'network' && !parentByServer.has(node.id),
+  );
+  const elkNodes: ELKNode[] = [
+    ...[...groupSpecs.values()].map((group) => ({ id: group.node.id, width: group.width, height: group.height })),
+    ...standaloneNodes.map((node) => ({
+      id: node.id,
+      width: node.resource_type === 'server' ? VM_WIDTH : 170,
+      height: node.resource_type === 'server' ? VM_HEIGHT : 66,
+    })),
+  ];
+  const topLevelIds = new Set(elkNodes.map((node) => node.id));
 
-    for (let nodeIdx = 0; nodeIdx < layerNodes.length; nodeIdx++) {
-      const node = layerNodes[nodeIdx];
-      const x = 100 + nodeIdx * spacingX - (layerNodes.length * spacingX) / 2;
+  const visibleEdges = topologyEdges.filter((edge) => {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) return false;
+    if (['contains', 'ha_member', 'trunk_parent', 'trunk_subport', 'egress_via'].includes(edge.relationship)) return false;
+    return !(edge.relationship === 'attached_to' && parentByServer.get(edge.source) === edge.target);
+  });
 
-      flowNodes.push({
-        id: node.id,
-        type: getNodeType(node.role),
-        position: { x, y },
-        data: { ...node },
-      });
+  const elkEdges = visibleEdges.flatMap((edge) => {
+    if (!topLevelIds.has(edge.source) || !topLevelIds.has(edge.target)) return [];
+    let source = edge.source;
+    let target = edge.target;
+    if (edge.relationship === 'attached_to') {
+      const server = nodeById.get(edge.source);
+      const network = nodeById.get(edge.target);
+      const portRole = edge.properties.port_id
+        ? server?.properties.interfaces?.[edge.properties.port_id]?.role
+        : undefined;
+      const isAppliance = server?.role === 'firewall' || server?.role === 'router';
+      if (isAppliance && !network?.properties.is_external && portRole !== 'WAN') {
+        source = edge.target;
+        target = edge.source;
+      }
     }
+    return [{ id: edge.id, sources: [source], targets: [target] }];
+  });
+
+  const graph = await elk.layout({
+    id: 'traffic-topology',
+    layoutOptions: {
+      'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.spacing.nodeNode': '56', 'elk.layered.spacing.nodeNodeBetweenLayers': '100',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '32',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+      'elk.padding': '[top=50,left=50,bottom=50,right=50]',
+    },
+    children: elkNodes,
+    edges: elkEdges,
+  });
+  const positions = new Map((graph.children || []).map((node) => [node.id, node]));
+  const flowNodes: Node[] = [];
+
+  for (const group of groupSpecs.values()) {
+    const position = positions.get(group.node.id);
+    flowNodes.push({
+      id: group.node.id, type: 'networkGroup',
+      position: { x: position?.x || 0, y: position?.y || 0 }, data: { ...group.node },
+      style: { width: group.width, height: group.height }, zIndex: 0,
+    });
+    group.children.forEach((server, index) => {
+      const column = index % group.columns;
+      const row = Math.floor(index / group.columns);
+      flowNodes.push({
+        id: server.id, type: displayNodeType(server), parentId: group.node.id, extent: 'parent',
+        position: {
+          x: GROUP_PADDING + column * (VM_WIDTH + GRID_GAP),
+          y: GROUP_HEADER + row * (VM_HEIGHT + GRID_GAP),
+        },
+        data: { ...server }, style: { width: VM_WIDTH, height: VM_HEIGHT }, zIndex: 2,
+      });
+    });
   }
 
-  // Convert edges
-  const flowEdges: Edge[] = edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    type: edge.inferred ? 'inferred' : 'confirmed',
-    animated: edge.inferred,
-    style: {
-      strokeDasharray: edge.inferred ? '5,5' : undefined,
-      stroke: edge.inferred ? '#9ca3af' : '#374151',
-    },
-  }));
+  for (const node of standaloneNodes) {
+    const position = positions.get(node.id);
+    flowNodes.push({
+      id: node.id, type: displayNodeType(node),
+      position: { x: position?.x || 0, y: position?.y || 0 }, data: { ...node },
+      style: {
+        width: node.resource_type === 'server' ? VM_WIDTH : 170,
+        height: node.resource_type === 'server' ? VM_HEIGHT : 66,
+      },
+      zIndex: 2,
+    });
+  }
 
+  const flowEdges: Edge[] = visibleEdges.map((edge) => ({
+    id: edge.id, source: edge.source, target: edge.target,
+    type: edge.inferred ? 'inferred' : 'confirmed', animated: false,
+    data: { relationship: edge.relationship, confidence: edge.confidence, ...edge.properties },
+    style: { stroke: edge.inferred ? '#94a3b8' : '#64748b' },
+    markerEnd: ['router_interface', 'external_gateway', 'internet_uplink'].includes(edge.relationship)
+      ? { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#64748b' }
+      : undefined,
+  }));
   return { nodes: flowNodes, edges: flowEdges };
 }
-
-/**
- * Get React Flow node type from role
- */
-function getNodeType(role: string): string {
-  const typeMap: Record<string, string> = {
-    vm: 'server',
-    server: 'server',
-    firewall: 'firewall',
-    router: 'router',
-    network: 'network',
-    subnet: 'subnet',
-    load_balancer: 'loadbalancer',
-    ha_group: 'hagroup',
-    internet: 'internet',
-  };
-  return typeMap[role] || 'default';
-}
-
-/**
- * Direction options for layout
- */
-export const LAYOUT_DIRECTIONS = {
-  'TB': { label: 'Top to Bottom', elk: 'DOWN' as const },
-  'BT': { label: 'Bottom to Top', elk: 'UP' as const },
-  'LR': { label: 'Left to Right', elk: 'RIGHT' as const },
-  'RL': { label: 'Right to Left', elk: 'LEFT' as const },
-};
-
-export type LayoutDirection = keyof typeof LAYOUT_DIRECTIONS;

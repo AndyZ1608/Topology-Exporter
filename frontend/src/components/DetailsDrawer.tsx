@@ -93,8 +93,6 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
         return '🌐';
       case 'internet':
         return '☁️';
-      case 'ha_group':
-        return '🔗';
       default:
         return '📦';
     }
@@ -239,7 +237,10 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
                   {Object.entries(node.properties.interfaces).map(([portId, info]) => (
                     <div key={portId} className="rounded border border-gray-200 p-2 text-xs">
                       <div className="font-mono text-gray-500 mb-1">{portId}</div>
-                      {info.network_id && <div>Network: <span className="font-mono">{info.network_id}</span></div>}
+                      {info.network_id && <div>Network: <span>{info.network_name || info.network_id}</span></div>}
+                      {info.subnets?.map((subnet) => (
+                        <div key={subnet.id}>Subnet: <span>{subnet.name || subnet.cidr || subnet.id}</span></div>
+                      ))}
                       {info.mac_address && <div>MAC: <span className="font-mono">{info.mac_address}</span></div>}
                       {info.ip_addresses?.map((ip) => <div key={ip}>IP: <span className="font-mono">{ip}</span></div>)}
                     </div>
@@ -321,6 +322,50 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
                 )}
               </div>
             </section>
+
+            {node.properties.subnets?.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Subnets</h3>
+                <div className="space-y-2">
+                  {node.properties.subnets.map((subnet) => (
+                    <div key={subnet.id} className="rounded border border-gray-200 p-2 text-xs">
+                      <div className="font-medium text-gray-800">{subnet.name || subnet.cidr || 'Unnamed subnet'}</div>
+                      {subnet.cidr && <div className="font-mono text-gray-600">{subnet.cidr}</div>}
+                      {subnet.gateway_ip && <div className="font-mono text-gray-500">Gateway {subnet.gateway_ip}</div>}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Attached VMs</h3>
+              <div className="text-sm text-gray-900">{node.properties.vm_count}</div>
+            </section>
+          </>
+        )}
+
+        {node.resource_type === 'router' && (
+          <>
+            <section>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Interfaces</h3>
+              <div className="space-y-2">
+                {node.properties.router_interfaces?.map((routerInterface) => (
+                  <div key={routerInterface.port_id || routerInterface.network_id} className="rounded border border-gray-200 p-2 text-xs">
+                    <div className="font-medium text-gray-800">{routerInterface.network_name || routerInterface.network_id}</div>
+                    {routerInterface.subnets?.map((cidr) => <div key={cidr} className="font-mono text-gray-500">{cidr}</div>)}
+                    {routerInterface.port_id && <div className="mt-1 font-mono text-gray-400">Port {routerInterface.port_id}</div>}
+                  </div>
+                ))}
+              </div>
+            </section>
+            {node.properties.external_gateway && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">External Gateway</h3>
+                <div className="text-sm font-mono text-gray-700">{node.properties.external_gateway.network_id}</div>
+                <div className="mt-1 text-xs text-gray-500">SNAT: {node.properties.external_gateway.enable_snat ? 'Enabled' : 'Disabled'}</div>
+              </section>
+            )}
           </>
         )}
 
@@ -332,16 +377,6 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
               <section>
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Vendor</h3>
                 <div className="text-sm text-gray-900">{node.properties.metadata.vendor}</div>
-              </section>
-            )}
-
-            {/* HA Group */}
-            {node.properties.metadata?.ha_group && (
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">HA Group</h3>
-                <div className="text-sm text-orange-700 bg-orange-50 px-2 py-1 rounded inline-block">
-                  {node.properties.metadata.ha_group}
-                </div>
               </section>
             )}
 

@@ -89,7 +89,7 @@ class PathEngine:
         node = self._nodes.get(node_id)
         if not node:
             return 99
-        if node.role == "firewall" or node.resource_type == "ha_group":
+        if node.role == "firewall":
             return 1
         if node.role == "router":
             return 2

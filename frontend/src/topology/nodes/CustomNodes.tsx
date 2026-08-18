@@ -1,285 +1,145 @@
-/**
- * Custom node components for React Flow.
- */
+/** Compact operational nodes for the single Traffic Topology. */
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { TopologyNode } from '@/types';
 
-// Status badge component
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const statusColors: Record<string, string> = {
-    ACTIVE: 'bg-green-100 text-green-700',
-    SHUTOFF: 'bg-gray-100 text-gray-600',
-    ERROR: 'bg-red-100 text-red-700',
-    UNKNOWN: 'bg-gray-100 text-gray-500',
-  };
-
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded ${statusColors[status] || statusColors.UNKNOWN}`}>
-      {status}
-    </span>
-  );
-};
-
-// Helper to extract node from data
-function getNodeFromProps(data: unknown): TopologyNode {
+function topologyNode(data: unknown): TopologyNode {
   return data as TopologyNode;
 }
 
-// Server/VM Node
+const StatusDot: React.FC<{ status: string }> = ({ status }) => {
+  const color = status === 'ACTIVE'
+    ? 'bg-emerald-500'
+    : status === 'ERROR' ? 'bg-red-500' : 'bg-slate-400';
+  return <span title={status} className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} />;
+};
+
+const TrafficHandles = ({ color = '!bg-slate-400' }: { color?: string }) => (
+  <>
+    <Handle type="target" position={Position.Left} className={`!h-2 !w-2 ${color}`} />
+    <Handle type="source" position={Position.Right} className={`!h-2 !w-2 ${color}`} />
+  </>
+);
+
 export const ServerNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
+  const node = topologyNode(data);
+  const ips = node.properties.ips || [];
   return (
-    <div className="node-card node-card-server">
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
-
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-gray-900 truncate" title={node.name}>
-            {node.name}
-          </div>
-          <StatusBadge status={node.status} />
-        </div>
-        <div className="text-xs text-gray-500 whitespace-nowrap">
-          {node.role.toUpperCase()}
-        </div>
+    <div
+      className="traffic-vm"
+      title={`${node.status}${node.project_name ? ` · ${node.project_name}` : ''}${node.properties.floating_ips?.length ? ` · FIP ${node.properties.floating_ips.join(', ')}` : ''}`}
+    >
+      <TrafficHandles />
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusDot status={node.status} />
+        <span className="truncate text-xs font-semibold text-slate-800">{node.name}</span>
       </div>
-
-      {node.properties.ips && node.properties.ips.length > 0 && (
-        <div className="mt-2 text-xs text-gray-600 font-mono">
-          {node.properties.ips[0]}
-          {node.properties.ips.length > 1 && (
-            <span className="text-gray-400"> +{node.properties.ips.length - 1}</span>
-          )}
-        </div>
-      )}
-
-      {node.project_name && (
-        <div className="mt-1 text-xs text-gray-400 truncate" title={node.project_name}>
-          {node.project_name}
-        </div>
-      )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
+      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-slate-500">
+        {ips[0] || 'No fixed IP'}{ips.length > 1 ? `  +${ips.length - 1}` : ''}
+      </div>
     </div>
   );
 });
 ServerNode.displayName = 'ServerNode';
 
-// Firewall Node
 export const FirewallNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-  const interfaces = node.properties.interfaces || {};
-
+  const node = topologyNode(data);
+  const ips = node.properties.ips || [];
   return (
-    <div className="node-card node-card-firewall">
-      <Handle type="target" position={Position.Top} className="!bg-red-400" />
-
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-gray-900 truncate" title={node.name}>
-            {node.name}
-          </div>
-          <div className="text-xs text-red-600">
-            {node.properties.metadata?.vendor || 'Firewall'}
-          </div>
-        </div>
-        <StatusBadge status={node.status} />
+    <div className="traffic-vm border-l-2 border-l-rose-400" title={`${node.status} · OpenStack appliance VM`}>
+      <TrafficHandles color="!bg-rose-400" />
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusDot status={node.status} />
+        <span className="truncate text-xs font-semibold text-slate-800">{node.name}</span>
+        <span className="ml-auto text-[9px] uppercase tracking-wide text-rose-500">FW VM</span>
       </div>
-
-      {/* Interfaces */}
-      {Object.entries(interfaces).length > 0 && (
-        <div className="mt-2 space-y-1">
-          {Object.entries(interfaces).slice(0, 4).map(([role, info]) => (
-            <div key={role} className="flex items-center gap-1 text-xs">
-              <span className={`px-1 rounded text-white text-[10px] font-medium ${
-                role === 'WAN' ? 'bg-blue-500' :
-                role === 'LAN' ? 'bg-green-500' :
-                role === 'MGMT' ? 'bg-purple-500' :
-                role === 'TRUNK' ? 'bg-orange-500' :
-                'bg-gray-500'
-              }`}>
-                {role}
-              </span>
-              <span className="text-gray-600 font-mono truncate">
-                {typeof info === 'string' ? info : (info as { ip_addresses?: string[] })?.ip_addresses?.[0] || '—'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-red-400" />
+      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-slate-500">
+        {ips.slice(0, 2).join(' · ') || 'No fixed IP'}
+      </div>
     </div>
   );
 });
 FirewallNode.displayName = 'FirewallNode';
 
-// Network Node
-export const NetworkNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
+export const ApplianceNode: React.FC<NodeProps> = memo(({ data }) => {
+  const node = topologyNode(data);
   return (
-    <div className="node-card node-card-network">
-      <Handle type="target" position={Position.Top} className="!bg-green-400" />
-
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-gray-900 truncate" title={node.name}>
-            {node.name}
-          </div>
-          {node.properties.cidr && (
-            <div className="text-xs text-gray-500 font-mono truncate">
-              {node.properties.cidr}
-            </div>
-          )}
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <StatusBadge status={node.status} />
-          {node.properties.is_external && (
-            <span className="text-xs px-1 py-0.5 rounded bg-cyan-100 text-cyan-700">
-              External
-            </span>
-          )}
-        </div>
+    <div className="traffic-vm border-l-2 border-l-violet-400" title={`${node.status} · OpenStack router VM`}>
+      <TrafficHandles color="!bg-violet-400" />
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusDot status={node.status} />
+        <span className="truncate text-xs font-semibold text-slate-800">{node.name}</span>
+        <span className="ml-auto text-[9px] uppercase tracking-wide text-violet-500">Router VM</span>
       </div>
-
-      {node.properties.provider_segmentation_id && (
-        <div className="mt-1 text-xs text-gray-400">
-          VLAN {node.properties.provider_segmentation_id}
-        </div>
-      )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-green-400" />
+      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-slate-500">
+        {node.properties.ips.slice(0, 2).join(' · ') || 'No fixed IP'}
+      </div>
     </div>
   );
 });
-NetworkNode.displayName = 'NetworkNode';
+ApplianceNode.displayName = 'ApplianceNode';
 
-// Router Node
-export const RouterNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
+export const NetworkGroupNode: React.FC<NodeProps> = memo(({ data }) => {
+  const node = topologyNode(data);
+  const external = node.properties.is_external;
+  const synthetic = Boolean(node.properties.metadata?.synthetic);
   return (
-    <div className="node-card node-card-router">
-      <Handle type="target" position={Position.Top} className="!bg-purple-400" />
-
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-gray-900 truncate" title={node.name}>
-            {node.name}
+    <div className={`traffic-network-group ${external ? 'traffic-network-external' : ''} ${synthetic ? 'traffic-network-unknown' : ''}`}>
+      <TrafficHandles color={external ? '!bg-teal-500' : '!bg-slate-400'} />
+      <div className="flex items-start justify-between gap-3 px-4 pt-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-800" title={node.name}>{node.name}</div>
+          <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
+            {node.properties.cidr || (synthetic ? 'No Neutron network attachment' : 'No subnet')}
           </div>
-          <div className="text-xs text-purple-600">Router</div>
         </div>
-        <StatusBadge status={node.status} />
+        <div className="flex shrink-0 items-center gap-2 text-[10px] text-slate-500">
+          {node.properties.provider_segmentation_id != null && <span>VLAN {node.properties.provider_segmentation_id}</span>}
+          {node.properties.is_shared && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-violet-600">Shared</span>}
+          {external && <span className="rounded bg-teal-50 px-1.5 py-0.5 text-teal-700">External</span>}
+        </div>
       </div>
+    </div>
+  );
+});
+NetworkGroupNode.displayName = 'NetworkGroupNode';
 
-      <Handle type="source" position={Position.Bottom} className="!bg-purple-400" />
+export const RouterNode: React.FC<NodeProps> = memo(({ data }) => {
+  const node = topologyNode(data);
+  return (
+    <div className="traffic-device border-l-2 border-l-violet-400">
+      <TrafficHandles color="!bg-violet-400" />
+      <div className="truncate text-xs font-semibold text-slate-800" title={node.name}>{node.name}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-violet-600">Neutron Router</div>
     </div>
   );
 });
 RouterNode.displayName = 'RouterNode';
 
-// HA Group Node
-export const HAGroupNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-  const members = node.properties.ha_members || [];
-
-  return (
-    <div className="node-card border-l-4 border-l-orange-500 min-w-[200px]">
-      <Handle type="target" position={Position.Top} className="!bg-orange-400" />
-
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">🔥</span>
-        <div>
-          <div className="font-semibold text-gray-900">{node.name}</div>
-          <div className="text-xs text-orange-600">HA Group</div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1">
-        {members.map((member, idx) => (
-          <span key={idx} className="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded">
-            {member}
-          </span>
-        ))}
-      </div>
-
-      <Handle type="source" position={Position.Bottom} className="!bg-orange-400" />
-    </div>
-  );
-});
-HAGroupNode.displayName = 'HAGroupNode';
-
-// Internet Node
 export const InternetNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
+  const node = topologyNode(data);
   return (
-    <div className="node-card node-card-internet bg-gradient-to-br from-cyan-50 to-blue-50">
-      <Handle type="target" position={Position.Top} className="!bg-cyan-400" />
-
-      <div className="flex items-center gap-2">
-        <span className="text-2xl">☁️</span>
-        <div>
-          <div className="font-semibold text-cyan-900">{node.name}</div>
-          <div className="text-xs text-cyan-600">Internet</div>
-        </div>
-      </div>
-
-      <Handle type="source" position={Position.Bottom} className="!bg-cyan-400" />
+    <div className="traffic-device border-l-2 border-l-cyan-400 bg-cyan-50/50">
+      <TrafficHandles color="!bg-cyan-400" />
+      <div className="truncate text-xs font-semibold text-cyan-900">{node.name}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-cyan-600">Logical destination</div>
     </div>
   );
 });
 InternetNode.displayName = 'InternetNode';
 
-// Subnet Node
-export const SubnetNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
-  return (
-    <div className="node-card border-l-4 border-l-teal-400 min-w-[150px]">
-      <Handle type="target" position={Position.Top} className="!bg-teal-400" />
-
-      <div className="font-medium text-gray-800 truncate" title={node.name}>
-        {node.name}
-      </div>
-      {node.properties.cidr && (
-        <div className="text-xs text-gray-500 font-mono">{node.properties.cidr}</div>
-      )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-teal-400" />
-    </div>
-  );
-});
-SubnetNode.displayName = 'SubnetNode';
-
-// Default/Unknown Node
 export const DefaultNode: React.FC<NodeProps> = memo(({ data }) => {
-  const node = getNodeFromProps(data);
-
-  return (
-    <div className="node-card border-l-4 border-l-gray-400">
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
-
-      <div className="font-medium text-gray-700 truncate">{node.name}</div>
-      <div className="text-xs text-gray-500">{node.role}</div>
-
-      <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
-    </div>
-  );
+  const node = topologyNode(data);
+  return <div className="traffic-device"><TrafficHandles /><div className="truncate text-xs font-medium">{node.name}</div></div>;
 });
 DefaultNode.displayName = 'DefaultNode';
 
-// Export all node types
 export const nodeTypes = {
   server: ServerNode,
   firewall: FirewallNode,
-  network: NetworkNode,
+  appliance: ApplianceNode,
+  networkGroup: NetworkGroupNode,
   router: RouterNode,
-  hagroup: HAGroupNode,
   internet: InternetNode,
-  subnet: SubnetNode,
   default: DefaultNode,
 };

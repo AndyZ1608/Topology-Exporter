@@ -49,6 +49,11 @@ class TopologyNormalizer:
                 "network_id": port.get("network_id"),
                 "mac_address": port.get("mac_address"),
                 "ip_addresses": port_ips,
+                "subnet_ids": [
+                    fixed_ip.get("subnet_id")
+                    for fixed_ip in port.get("fixed_ips", [])
+                    if fixed_ip.get("subnet_id")
+                ],
                 "security_groups": port.get("security_groups", []),
             }
 
@@ -126,27 +131,6 @@ class TopologyNormalizer:
             tags=network.get("tags", []),
         )
 
-    def normalize_subnet(self, subnet: dict) -> TopologyNode:
-        """Normalize a Neutron subnet to a topology node."""
-        properties = NodeProperties(
-            cidr=subnet.get("cidr"),
-            gateway_ip=subnet.get("gateway_ip"),
-        )
-
-        return TopologyNode(
-            id=f"subnet:{subnet['id']}",
-            resource_id=subnet["id"],
-            resource_type="subnet",
-            role="subnet",
-            name=subnet["name"] or subnet.get("cidr", subnet["id"]),
-            project_id=subnet.get("project_id"),
-            project_name=self.get_project_name(subnet.get("project_id")),
-            status="UNKNOWN",
-            layer="network",
-            properties=properties,
-            tags=subnet.get("tags", []),
-        )
-
     def normalize_router(self, router: dict) -> TopologyNode:
         """Normalize a Neutron router to a topology node."""
         external_gateway = None
@@ -180,31 +164,6 @@ class TopologyNormalizer:
             properties=properties,
         )
 
-    def normalize_ha_group(
-        self,
-        group_id: str,
-        name: str,
-        member_ids: list[str],
-        vendor: str = None,
-    ) -> TopologyNode:
-        """Normalize a firewall HA group."""
-        properties = NodeProperties(
-            ha_members=member_ids,
-        )
-
-        return TopologyNode(
-            id=f"ha-group:{group_id}",
-            resource_id=group_id,
-            resource_type="ha_group",
-            role="firewall",
-            name=name,
-            project_id=None,
-            project_name=None,
-            status="ACTIVE",
-            layer="gateway",
-            properties=properties,
-        )
-
     def create_internet_node(self) -> TopologyNode:
         """Create the synthetic Internet node."""
         return TopologyNode(
@@ -218,25 +177,4 @@ class TopologyNormalizer:
             status="ACTIVE",
             layer="internet",
             properties=NodeProperties(),
-        )
-
-    def normalize_trunk(
-        self,
-        trunk: dict,
-        sub_ports: list[dict] = None,
-    ) -> TopologyNode:
-        """Normalize a Neutron trunk."""
-        properties = NodeProperties()
-
-        return TopologyNode(
-            id=f"trunk:{trunk['id']}",
-            resource_id=trunk["id"],
-            resource_type="trunk",
-            role="trunk",
-            name=trunk["name"] or trunk["id"],
-            project_id=trunk.get("project_id"),
-            project_name=self.get_project_name(trunk.get("project_id")),
-            status=trunk.get("status", "UNKNOWN"),
-            layer="gateway",
-            properties=properties,
         )

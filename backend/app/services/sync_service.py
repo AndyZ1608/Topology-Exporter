@@ -331,7 +331,11 @@ class TopologySyncService:
             "projects": len(projects),
             "servers": sum(node.resource_type == "server" for node in nodes),
             "networks": sum(node.resource_type == "network" for node in nodes),
-            "subnets": sum(node.resource_type == "subnet" for node in nodes),
+            "subnets": int(
+                self._current_topology.metadata.get("subnets", 0)
+                if self._current_topology
+                else 0
+            ),
             "routers": sum(node.resource_type == "router" for node in nodes),
             "floating_ips": len(floating_ips),
             "last_sync": (
@@ -387,13 +391,41 @@ class TopologySyncService:
         # Filter by project
         if project_ids:
             project_id_set = set(project_ids)
-            nodes = [
-                n for n in nodes
-                if n.project_id is None
-                or n.project_id in project_id_set
-                or n.properties.is_shared
-                or n.properties.is_external
-            ]
+            node_by_id = {node.id: node for node in nodes}
+            included_ids = {
+                node.id for node in nodes if node.project_id in project_id_set
+            }
+
+            # Pull in only shared/external dependencies that are connected to
+            # the selected project's real resources. Never include VMs from an
+            # unrelated project merely because they share a network.
+            changed = True
+            while changed:
+                changed = False
+                for edge in edges:
+                    for known_id, candidate_id in (
+                        (edge.source, edge.target),
+                        (edge.target, edge.source),
+                    ):
+                        candidate = node_by_id.get(candidate_id)
+                        if known_id not in included_ids or candidate is None:
+                            continue
+                        is_dependency = (
+                            candidate.resource_type == "internet"
+                            or (
+                                candidate.resource_type == "network"
+                                and (
+                                    candidate.properties.is_shared
+                                    or candidate.properties.is_external
+                                    or candidate.project_id is None
+                                )
+                            )
+                        )
+                        if is_dependency and candidate_id not in included_ids:
+                            included_ids.add(candidate_id)
+                            changed = True
+
+            nodes = [node for node in nodes if node.id in included_ids]
 
         # Filter by resource type
         if resource_types:
@@ -405,19 +437,26 @@ class TopologySyncService:
 
         # Filter by status
         if status:
-            nodes = [n for n in nodes if n.status.upper() == status.upper()]
+            nodes = [
+                node
+                for node in nodes
+                if node.resource_type != "server"
+                or node.status.upper() == status.upper()
+            ]
 
         # Filter by search
+        matched_node_ids = []
         if search:
             search_lower = search.lower()
-            nodes = [
-                n for n in nodes
-                if search_lower in n.name.lower()
-                or search_lower in n.resource_id.lower()
-                or (n.project_name and search_lower in n.project_name.lower())
-                or any(search_lower in ip.lower() for ip in n.properties.ips)
-                or any(search_lower in ip.lower() for ip in n.properties.floating_ips)
-                or (n.properties.cidr and search_lower in n.properties.cidr.lower())
+            matched_node_ids = [
+                node.id
+                for node in nodes
+                if search_lower in node.name.lower()
+                or search_lower in node.resource_id.lower()
+                or (node.project_name and search_lower in node.project_name.lower())
+                or any(search_lower in ip.lower() for ip in node.properties.ips)
+                or any(search_lower in ip.lower() for ip in node.properties.floating_ips)
+                or (node.properties.cidr and search_lower in node.properties.cidr.lower())
             ]
 
         # Get edges between remaining nodes
@@ -434,7 +473,8 @@ class TopologySyncService:
                 "filtered": True,
                 "original_node_count": len(self._current_topology.nodes),
                 "original_edge_count": len(self._current_topology.edges),
-                "view": view,
+                "view": "traffic",
+                "matched_node_ids": matched_node_ids,
             },
         }
 

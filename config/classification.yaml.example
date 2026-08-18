@@ -3,7 +3,7 @@
 
 devices:
   # Firewall classification is intentionally absent. Use explicit Nova metadata
-  # (device_role=firewall), an explicit device_role tag, or firewalls.yaml.
+  # (device_role=firewall) or an explicit device_role tag.
   load_balancer:
     patterns:
       - "(?i)haproxy"

@@ -65,13 +65,6 @@ export async function getTopology(filters?: Partial<TopologyFilters>): Promise<T
   if (filters?.status) {
     params.append('status', filters.status);
   }
-  if (filters?.search) {
-    params.append('search', filters.search);
-  }
-  if (filters?.view) {
-    params.append('view', filters.view);
-  }
-
   const response = await api.get('/topology', { params });
   return response.data;
 }

@@ -28,9 +28,7 @@ body {
   font-size: 12px;
 }
 
-.react-flow__edge-path {
-  stroke-width: 2;
-}
+.react-flow__edge-path { shape-rendering: geometricPrecision; }
 
 .react-flow__controls {
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
@@ -59,42 +57,34 @@ body {
   background: #94a3b8;
 }
 
-/* Node card styles */
-.node-card {
-  @apply bg-white rounded-lg shadow-sm border border-gray-200 p-3 min-w-[180px];
+/* Compact architecture-diagram nodes. */
+.traffic-vm {
+  @apply h-full w-full rounded-md border border-slate-200 bg-white px-3 py-2 shadow-none;
 }
 
-.node-card-server {
-  @apply border-l-4 border-l-blue-500;
+.traffic-device {
+  @apply h-full w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 shadow-none;
 }
 
-.node-card-firewall {
-  @apply border-l-4 border-l-red-500;
+.traffic-network-group {
+  @apply h-full w-full rounded-lg border border-slate-300 bg-slate-100/70 shadow-none;
 }
 
-.node-card-network {
-  @apply border-l-4 border-l-green-500;
+.traffic-network-external {
+  @apply border-teal-300 bg-teal-50/60;
 }
 
-.node-card-router {
-  @apply border-l-4 border-l-purple-500;
+.traffic-network-unknown {
+  @apply border-dashed border-slate-300 bg-white/60;
 }
 
-.node-card-internet {
-  @apply border-l-4 border-l-cyan-500;
-}
+.react-flow__node-networkGroup { z-index: 0 !important; }
+.react-flow__node-server,
+.react-flow__node-firewall,
+.react-flow__node-appliance { z-index: 2 !important; }
 
-/* Status indicators */
-.status-active {
-  @apply text-green-600 bg-green-50;
-}
-
-.status-shutoff {
-  @apply text-gray-600 bg-gray-50;
-}
-
-.status-error {
-  @apply text-red-600 bg-red-50;
+.react-flow__handle {
+  border: 1px solid white;
 }
 
 /* Animations */

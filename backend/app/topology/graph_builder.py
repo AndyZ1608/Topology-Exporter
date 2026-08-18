@@ -2,16 +2,13 @@
 Graph builder - orchestrates topology building from OpenStack resources.
 """
 import logging
-import re
 from typing import Optional
 
-from app.config import settings
-from app.schemas.topology import EdgeProperties, NodeProperties, TopologyNode, TopologyEdge, TopologyResponse
+from app.schemas.topology import TopologyNode, TopologyEdge, TopologyResponse
 from app.topology.normalizer import TopologyNormalizer
 from app.topology.classifier import ClassificationEngine
 from app.topology.relationship_engine import RelationshipEngine
 from app.topology.path_engine import PathEngine
-from app.topology.firewall_config import load_firewall_mappings
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +24,6 @@ class GraphBuilder:
     def __init__(self):
         self.normalizer = TopologyNormalizer()
         self.classifier = ClassificationEngine()
-        self.firewall_mappings = load_firewall_mappings(settings.firewall_config_path)
-        manual_overrides = {}
-        for mapping in self.firewall_mappings:
-            if mapping.type != "openstack":
-                continue
-            for server_id in mapping.server_ids:
-                manual_overrides[server_id] = {
-                    "role": "firewall",
-                    "vendor": mapping.vendor,
-                    "ha_group": mapping.id if len(mapping.server_ids) > 1 else None,
-                }
-        self.classifier.set_manual_overrides(manual_overrides)
         self.relationship_engine = RelationshipEngine()
         self.path_engine = PathEngine()
 
@@ -99,40 +84,72 @@ class GraphBuilder:
 
         # Group ports by server and network
         ports_by_server: dict[str, list[dict]] = {}
-        ports_by_network: dict[str, list[dict]] = {}
 
         for port in ports.values():
             server_id = port.get("device_id")
-            network_id = port.get("network_id")
-
             if server_id and port.get("device_owner_category") == "compute":
                 if server_id not in ports_by_server:
                     ports_by_server[server_id] = []
                 ports_by_server[server_id].append(port)
 
-            if network_id:
-                if network_id not in ports_by_network:
-                    ports_by_network[network_id] = []
-                ports_by_network[network_id].append(port)
+        # A trunk subport may not carry the Nova device_id. Attribute it to the
+        # parent port's server so one VM keeps all of its real network links.
+        for trunk in trunks.values():
+            parent_port = ports.get(trunk.get("port_id"))
+            server_id = parent_port.get("device_id") if parent_port else None
+            if not server_id or parent_port.get("device_owner_category") != "compute":
+                continue
+            known_port_ids = {port["id"] for port in ports_by_server.get(server_id, [])}
+            for sub_port in trunk.get("sub_ports", []):
+                port = ports.get(sub_port.get("port_id"))
+                if port and port["id"] not in known_port_ids:
+                    ports_by_server.setdefault(server_id, []).append({
+                        **port,
+                        "_trunk_parent_server_id": server_id,
+                    })
+                    known_port_ids.add(port["id"])
 
-        # 1. Add networks and subnets first
+        # 1. Add networks. Subnet CIDRs/gateways are folded into the network
+        # node for the operational graph instead of becoming large visual nodes.
         for network in networks.values():
             network_subnets = [
                 s for s in subnets.values()
                 if s["network_id"] == network["id"]
             ]
             network_node = self.normalizer.normalize_network(network, network_subnets)
+            network_node.properties.vm_count = len({
+                server_id
+                for server_id, server_ports in ports_by_server.items()
+                if any(port.get("network_id") == network["id"] for port in server_ports)
+            })
+            network_node.properties.subnets = [
+                {
+                    "id": subnet["id"],
+                    "name": subnet.get("name"),
+                    "cidr": subnet.get("cidr"),
+                    "gateway_ip": subnet.get("gateway_ip"),
+                }
+                for subnet in network_subnets
+            ]
             self.add_node(network_node)
-
-            # Add subnet nodes
-            for subnet in network_subnets:
-                subnet_node = self.normalizer.normalize_subnet(subnet)
-                self.add_node(subnet_node)
-                self.relationship_engine.add_subnet_relationship(network["id"], subnet["id"])
 
         # 2. Add routers
         for router in routers.values():
             router_node = self.normalizer.normalize_router(router)
+            router_node.properties.router_interfaces = [
+                {
+                    "port_id": interface.get("port_id"),
+                    "network_id": interface.get("network_id"),
+                    "network_name": networks.get(interface.get("network_id"), {}).get("name"),
+                    "subnets": [
+                        subnet.get("cidr")
+                        for subnet in subnets.values()
+                        if subnet.get("network_id") == interface.get("network_id")
+                        and subnet.get("cidr")
+                    ],
+                }
+                for interface in router.get("interfaces", [])
+            ]
             self.add_node(router_node)
 
             # Router interface relationships
@@ -152,8 +169,6 @@ class GraphBuilder:
                 )
 
         # 3. Add servers (VMs and firewalls)
-        server_classifications = {}
-
         for server in servers.values():
             server_ports = ports_by_server.get(server["id"], [])
 
@@ -170,8 +185,6 @@ class GraphBuilder:
                 server_ports,
                 networks,
             )
-            server_classifications[server["id"]] = classification
-
             # Create node
             server_node = self.normalizer.normalize_server(
                 server,
@@ -185,86 +198,64 @@ class GraphBuilder:
                 server_node.properties.interfaces.setdefault(port_id, {}).update(
                     interface_classification
                 )
+            for interface in server_node.properties.interfaces.values():
+                network = networks.get(interface.get("network_id"), {})
+                interface["network_name"] = network.get("name")
+                interface["subnets"] = [
+                    {
+                        "id": subnet_id,
+                        "name": subnets.get(subnet_id, {}).get("name"),
+                        "cidr": subnets.get(subnet_id, {}).get("cidr"),
+                    }
+                    for subnet_id in interface.get("subnet_ids", [])
+                ]
             server_node.properties.security_groups = sorted({
                 security_groups.get(group_id, {}).get("name", group_id)
                 for port in server_ports
                 for group_id in port.get("security_groups", [])
             })
             server_node.properties.metadata["vendor"] = classification["vendor"]
-            server_node.properties.metadata["ha_group"] = classification["ha_group"]
 
             self.add_node(server_node)
 
             # Create port relationships
             for port in server_ports:
-                if port.get("device_owner_category") == "compute":
+                if (
+                    port.get("device_owner_category") == "compute"
+                    or port.get("_trunk_parent_server_id") == server["id"]
+                ):
                     self.relationship_engine.add_server_port_relationship(
                         server["id"],
                         port["id"],
                         port["network_id"],
+                        properties={
+                            "fixed_ip": next(
+                                (
+                                    fixed_ip.get("ip_address")
+                                    for fixed_ip in port.get("fixed_ips", [])
+                                    if fixed_ip.get("ip_address")
+                                ),
+                                None,
+                            ),
+                            "subnet_id": next(
+                                (
+                                    fixed_ip.get("subnet_id")
+                                    for fixed_ip in port.get("fixed_ips", [])
+                                    if fixed_ip.get("subnet_id")
+                                ),
+                                None,
+                            ),
+                            "network_id": port["network_id"],
+                            "mac_address": port.get("mac_address"),
+                        },
                     )
 
                     # Floating IPs are exposed on the server's properties. They
                     # are not graph nodes by default, so do not create dangling
                     # edges to non-existent floating-IP nodes.
 
-        # 4. Handle HA groups
-        ha_groups = self.classifier.get_ha_groups(list(servers.values()), ports)
-
-        for ha_group_id, member_ids in ha_groups.items():
-            if len(member_ids) >= 2:
-                # Create HA group node
-                vendor = "Unknown"
-                for member_id in member_ids:
-                    if member_id in server_classifications:
-                        v = server_classifications[member_id].get("vendor")
-                        if v:
-                            vendor = v
-                            break
-
-                ha_group_node = self.normalizer.normalize_ha_group(
-                    ha_group_id,
-                    f"{vendor} HA",
-                    member_ids,
-                    vendor,
-                )
-                self.add_node(ha_group_node)
-
-                # Add member relationships
-                for member_id in member_ids:
-                    self.relationship_engine.add_ha_group_relationship(ha_group_id, member_id)
-
-        # 5. Handle trunks
-        for trunk in trunks.values():
-            trunk_node = self.normalizer.normalize_trunk(trunk)
-            self.add_node(trunk_node)
-
-            # Find the parent port (firewall)
-            parent_port_id = trunk.get("port_id")
-            if parent_port_id and parent_port_id in ports:
-                port = ports[parent_port_id]
-                device_id = port.get("device_id")
-                if device_id and device_id in server_classifications:
-                    if server_classifications[device_id]["role"] == "firewall":
-                        self.relationship_engine.add_trunk_parent_relationship(
-                            trunk["id"],
-                            parent_port_id,
-                            device_id,
-                        )
-
-            # Add subport relationships
-            for sub_port in trunk.get("sub_ports", []):
-                sub_port_id = sub_port.get("port_id")
-                if sub_port_id and sub_port_id in ports:
-                    sub_port_network_id = ports[sub_port_id].get("network_id")
-                    if sub_port_network_id:
-                        self.relationship_engine.add_trunk_subport_relationship(
-                            trunk["id"],
-                            sub_port,
-                            sub_port_network_id,
-                        )
-
-        # 6. Add Internet node and relationships
+        # 4. Add the conceptual Internet endpoint and only OpenStack external
+        # network uplinks. No external physical infrastructure is injected.
         internet_node = self.normalizer.create_internet_node()
         self.add_node(internet_node)
 
@@ -275,17 +266,11 @@ class GraphBuilder:
                 if self._is_internet_egress_network(network):
                     self.relationship_engine.add_internet_relationship(network["id"])
 
-        # 7. Add only operator-configured external firewall relationships.
-        self._add_external_firewall_mappings(networks)
-
-        # 8. Build inferred relationships for explicitly classified hosted firewalls.
-        self._build_inferred_firewall_paths(servers, ports, server_classifications, networks)
-
-        # 9. Collect all edges
+        # 5. Collect all edges
         for edge in self.relationship_engine.get_edges():
             self.add_edge(edge)
 
-        # 10. Update path engine
+        # 6. Update path engine
         self.path_engine.set_topology(self._nodes, self._edges)
 
         return TopologyResponse(
@@ -297,90 +282,10 @@ class GraphBuilder:
                 "servers": len(servers),
                 "networks": len(networks),
                 "routers": len(routers),
-                "ha_groups": len([n for n in self._nodes if n.resource_type == "ha_group"]),
+                "subnets": len(subnets),
+                "floating_ips": len(floating_ips),
             },
         )
-
-    def _add_external_firewall_mappings(self, networks: dict) -> None:
-        """Inject external firewalls only where both endpoints match explicitly."""
-        for mapping in self.firewall_mappings:
-            if mapping.type != "external":
-                continue
-
-            upstream_networks = [
-                network
-                for network in networks.values()
-                if mapping.upstream.external_network
-                and mapping.upstream.external_network in {network["id"], network.get("name")}
-            ]
-            downstream_networks = [
-                network
-                for network in networks.values()
-                if mapping.downstream.physical_network
-                and network.get("provider:physical_network") == mapping.downstream.physical_network
-                and network not in upstream_networks
-            ]
-
-            if not upstream_networks or not downstream_networks:
-                logger.warning(
-                    "Explicit firewall mapping %s is disconnected: upstream=%s downstream=%s",
-                    mapping.id,
-                    len(upstream_networks),
-                    len(downstream_networks),
-                )
-                continue
-
-            firewall_node = TopologyNode(
-                id=f"firewall:{mapping.id}",
-                resource_id=mapping.id,
-                resource_type="firewall",
-                role="firewall",
-                name=mapping.name,
-                status="ACTIVE",
-                layer="gateway",
-                properties=NodeProperties(
-                    ha_members=mapping.members,
-                    metadata={
-                        "vendor": mapping.vendor,
-                        "mode": mapping.mode,
-                        "mapping_source": "explicit_config",
-                        "external": True,
-                    },
-                ),
-            )
-            self.add_node(firewall_node)
-
-            for member in mapping.members:
-                member_key = re.sub(r"[^a-zA-Z0-9_-]+", "-", member).strip("-").lower()
-                member_node = TopologyNode(
-                    id=f"firewall-member:{mapping.id}:{member_key}",
-                    resource_id=f"{mapping.id}:{member_key}",
-                    resource_type="firewall_member",
-                    role="firewall",
-                    name=member,
-                    status="UNKNOWN",
-                    layer="gateway",
-                    parent_id=firewall_node.id,
-                    properties=NodeProperties(metadata={"vendor": mapping.vendor}),
-                )
-                self.add_node(member_node)
-                self.relationship_engine.add_edge(TopologyEdge(
-                    id=f"edge-ha-{mapping.id}-{member_key}",
-                    source=member_node.id,
-                    target=firewall_node.id,
-                    relationship="ha_member",
-                    inferred=False,
-                    confidence=1.0,
-                    properties=EdgeProperties(mapping_source="explicit_config"),
-                ))
-
-            for downstream in downstream_networks:
-                for upstream in upstream_networks:
-                    self.relationship_engine.add_explicit_firewall_path(
-                        mapping.id,
-                        downstream["id"],
-                        upstream["id"],
-                    )
 
     def _is_internet_egress_network(self, network: dict) -> bool:
         """Determine if a network represents Internet egress."""
@@ -396,67 +301,6 @@ class GraphBuilder:
 
         return False
 
-    def _build_inferred_firewall_paths(
-        self,
-        servers: dict,
-        ports: dict,
-        classifications: dict,
-        networks: dict,
-    ):
-        """
-        Build inferred paths showing VMs that egress through firewalls.
-
-        This is a heuristic-based inference, not verified routing.
-        """
-        # Find firewalls
-        firewalls = {
-            server_id: classification
-            for server_id, classification in classifications.items()
-            if classification["role"] == "firewall"
-        }
-
-        # Find networks connected to firewalls
-        firewall_networks: dict[str, str] = {}  # internal network -> firewall server
-
-        for server_id, classification in firewalls.items():
-            for port_id, iface_info in classification.get("interfaces", {}).items():
-                if iface_info.get("role") in ["LAN", "TRUNK"]:
-                    network_id = iface_info.get("network_id")
-                    if network_id:
-                        firewall_networks[network_id] = server_id
-
-        # For each VM, check if there's an inferred path through a firewall
-        created_relationships: set[tuple[str, str]] = set()
-        for server_id, server in servers.items():
-            if server_id in firewalls:
-                continue  # Skip firewalls
-
-            classification = classifications.get(server_id, {})
-            if classification.get("role") == "vm":
-                server_ports = [
-                    p for p in ports.values()
-                    if p.get("device_id") == server_id and p.get("device_owner_category") == "compute"
-                ]
-
-                for port in server_ports:
-                    network_id = port.get("network_id")
-                    if network_id in firewall_networks:
-                        firewall_id = firewall_networks[network_id]
-                        relationship_key = (network_id, firewall_id)
-                        if relationship_key in created_relationships:
-                            continue
-
-                        # Check if firewall has a path to external/Internet
-                        firewall_classification = firewalls.get(firewall_id, {})
-                        if firewall_classification.get("interfaces"):
-                            # This is an inferred relationship
-                            self.relationship_engine.add_inferred_firewall_relationship(
-                                server_id,
-                                firewall_id,
-                                network_id,
-                                confidence=0.75,
-                            )
-                            created_relationships.add(relationship_key)
 
     def find_internet_path(self, server_id: str) -> dict:
         """Find the Internet path for a server."""

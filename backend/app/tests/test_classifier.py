@@ -92,16 +92,6 @@ class TestDeviceClassifier:
         server = {"name": "fortigate-fw", "metadata": {}, "tags": []}
         assert classifier.get_device_vendor(server) is None
 
-    def test_get_ha_group(self, classifier):
-        """Test HA group extraction."""
-        server = {
-            "name": "PAN01",
-            "metadata": {"device_group": "PAN-HA"},
-            "tags": []
-        }
-        assert classifier.get_ha_group(server) == "PAN-HA"
-
-
 class TestInterfaceClassifier:
     """Tests for InterfaceClassifier."""
 
@@ -169,34 +159,3 @@ class TestClassificationEngine:
         assert result["role"] == "firewall"
         assert result["vendor"] == "Palo Alto"
         assert "interfaces" in result
-
-    def test_get_ha_groups(self, engine):
-        """Test HA group detection."""
-        servers = [
-            {
-                "id": "pan01",
-                "name": "PAN01",
-                "metadata": {"device_role": "firewall", "device_group": "PAN-HA"},
-                "tags": []
-            },
-            {
-                "id": "pan02",
-                "name": "PAN02",
-                "metadata": {"device_role": "firewall", "device_group": "PAN-HA"},
-                "tags": []
-            },
-            {
-                "id": "web01",
-                "name": "web01",
-                "metadata": {},
-                "tags": []
-            },
-        ]
-        ports = {}
-
-        ha_groups = engine.get_ha_groups(servers, ports)
-
-        assert "PAN-HA" in ha_groups
-        assert len(ha_groups["PAN-HA"]) == 2
-        assert "pan01" in ha_groups["PAN-HA"]
-        assert "pan02" in ha_groups["PAN-HA"]

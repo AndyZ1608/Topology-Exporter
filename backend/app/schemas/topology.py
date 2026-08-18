@@ -25,6 +25,8 @@ class NodeProperties(BaseModel):
     external_gateway: Optional[dict] = None
     floating_ips: list[str] = Field(default_factory=list)
     security_groups: list[str] = Field(default_factory=list)
+    subnets: list[dict] = Field(default_factory=list)
+    router_interfaces: list[dict] = Field(default_factory=list)
 
 
 class TopologyNode(BaseModel):
@@ -72,9 +74,10 @@ class EdgeProperties(BaseModel):
     floating_ip: Optional[str] = None
     fixed_ip: Optional[str] = None
     port_id: Optional[str] = None
+    network_id: Optional[str] = None
     subnet_id: Optional[str] = None
+    mac_address: Optional[str] = None
     trunk_id: Optional[str] = None
-    mapping_source: Optional[str] = None
 
 
 class TopologyEdge(BaseModel):

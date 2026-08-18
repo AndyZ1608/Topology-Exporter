@@ -74,7 +74,6 @@ class Settings(BaseSettings):
     TOPOLOGY_SYNC_INTERVAL: int = 60
     DEMO_MODE: bool = False
     CLASSIFICATION_CONFIG_PATH: str | None = None
-    FIREWALL_CONFIG_PATH: str | None = None
     VM_AGGREGATION_THRESHOLD: int = 10
 
     CORS_ORIGINS: CorsOrigins = DEFAULT_CORS_ORIGINS.copy()
@@ -112,14 +111,5 @@ class Settings(BaseSettings):
             if location.exists():
                 return location
         return None
-
-    @property
-    def firewall_config_path(self) -> Path | None:
-        """Return the explicit firewall mapping file when configured."""
-        if self.FIREWALL_CONFIG_PATH:
-            return Path(self.FIREWALL_CONFIG_PATH)
-        location = Path.cwd() / "config" / "firewalls.yaml"
-        return location if location.exists() else None
-
 
 settings = Settings()

@@ -15,13 +15,13 @@ const App: React.FC = () => {
     resourceTypes: [],
     status: '',
     search: '',
-    view: 'traffic',
   });
 
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [cloudSummary, setCloudSummary] = useState<CloudSummary | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Load once. Further discovery is explicitly operator-triggered via Refresh.
   useEffect(() => {
@@ -55,6 +55,7 @@ const App: React.FC = () => {
       const status = await getSyncStatus();
       setSyncStatus(status);
       setCloudSummary(await getCloudSummary());
+      setRefreshKey((value) => value + 1);
     } catch (err) {
       console.error('Failed to refresh topology:', err);
     }
@@ -90,6 +91,7 @@ const App: React.FC = () => {
         <main className="flex-1 overflow-hidden">
           <TopologyCanvas
             filters={filters}
+            refreshKey={refreshKey}
             onNodeClick={handleNodeSelect}
           />
         </main>

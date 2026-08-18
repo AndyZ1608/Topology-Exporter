@@ -6,13 +6,12 @@ A production-oriented web application that connects to an existing OpenStack clo
 
 ## Features
 
-- **Traffic-Path-Centric Topology**: Visualizes the path from VM to Internet
-- **Multi-Project Support**: See topology across all OpenStack projects
-- **Explicit Firewall Mapping**: Supports hosted and external firewall/HA mappings without unsafe name-based inference
-- **HA Group Support**: Groups clustered firewalls together
-- **Trunk Support**: Visualizes trunk connections
-- **Internet Path Discovery**: Shows the logical path from any VM to the Internet
-- **Inferred vs Confirmed**: Distinguishes between OpenStack-confirmed relationships and inferred topology
+- **Single Traffic Topology**: One operational view from VM/network toward external connectivity
+- **Network Containers**: Groups VMs into compact network/subnet zones
+- **Multi-Project Support**: Select one project while retaining only relevant shared/external dependencies
+- **Multi-NIC Appliances**: Shows one OpenStack VM with every real Neutron-port connection
+- **Readability at Scale**: Deterministic VM grids, automatic left-to-right ELK layout, and orthogonal edges
+- **Internet Path Discovery**: Highlights the logical OpenStack path from a selected VM
 
 ## Architecture
 
@@ -40,7 +39,7 @@ A production-oriented web application that connects to an existing OpenStack clo
 │  │ Collectors │  │ Normalizer │  │ Classification Engine     │ │
 │  │ - Identity │  │            │  │ - Device detection       │ │
 │  │ - Compute  │  │            │  │ - Interface classification│ │
-│  │ - Network  │  │            │  │ - HA grouping            │ │
+│  │ - Network  │  │            │  │ - Explicit VM roles      │ │
 │  └────────────┘  └────────────┘  └─────────────────────────┘ │
 │                                                                │
 │  ┌────────────┐  ┌────────────┐  ┌─────────────────────────┐ │
@@ -191,10 +190,8 @@ cp config/classification.yaml.example config/classification.yaml
 Firewall classification is explicit by design. A firewall-looking VM name such
 as `PAN01` or `FW01` remains a regular VM unless one of these is configured:
 
-1. A manual classification override
-2. Server metadata (`device_role=firewall`)
-3. An OpenStack tag (`device_role=firewall`)
-4. A Nova server UUID in `firewalls.yaml`
+1. Server metadata (`device_role=firewall`)
+2. An OpenStack tag (`device_role=firewall`)
 
 Name patterns remain available for non-firewall presentation roles, but never
 create firewall or egress relationships.
@@ -203,22 +200,12 @@ Example metadata for firewall classification:
 
 ```bash
 # On server metadata
-openstack server set --property device_role=firewall --property device_vendor="Palo Alto" --property device_group=PAN-HA my-firewall-vm
+openstack server set --property device_role=firewall --property device_vendor="Palo Alto" my-firewall-vm
 ```
 
-### Explicit and external firewall mapping
-
-Copy the safe example and edit it with your real network names, physical
-networks, and (for hosted appliances) canonical Nova UUIDs:
-
-```bash
-cp config/firewalls.yaml.example config/firewalls.yaml
-```
-
-External appliances are injected only when both configured endpoints resolve.
-These edges are marked as logical/configured relationships and are never
-presented as OpenStack-confirmed datapaths. An invalid or incomplete mapping is
-logged and left disconnected instead of inventing a path.
+Only appliances represented by Nova servers and Neutron ports appear. Physical
+firewalls, routers, switches, external HA groups, and manually invented
+datacenter links are intentionally outside the topology scope.
 
 ### Inventory cache (PostgreSQL)
 
@@ -289,7 +276,7 @@ DEMO_MODE=true docker compose up
 
 Demo topology includes:
 - 1 Project (NOC)
-- 2 Firewalls (PAN01, PAN02) in HA group
+- 2 explicitly classified OpenStack appliance VMs (PAN01, PAN02)
 - 1 External network (NOC-WAN)
 - 3 Internal VLANs (VLAN10-AV, VLAN20-PAM, VLAN30-Monitor)
 - 8 Servers (AV01, AV02, PAM01, PAM02, MON01, MON02, MON03)
@@ -301,10 +288,9 @@ Demo topology includes:
 | Role | Description | Icon |
 |------|-------------|------|
 | VM | Virtual machine | 🖥️ |
-| Firewall | Firewall appliance | 🔥 |
+| Firewall VM | Explicitly classified Nova server | compact rose-accent card |
 | Router | Neutron router | 🔀 |
-| Network | Neutron network | 🌐 |
-| HA Group | Firewall HA cluster | 🔗 |
+| Network | Neutron network and subnet container | grouped zone |
 | Internet | Internet endpoint | ☁️ |
 
 ### Edge Types
@@ -315,14 +301,12 @@ Demo topology includes:
 | router_interface | Router interface | Solid |
 | external_gateway | Router to external network | Solid |
 | internet_uplink | External network to Internet | Dashed |
-| egress_via | Explicitly configured or clearly labeled inferred firewall path | Dashed |
 
-### Layout Directions
+### Layout
 
-- **Top to Bottom** (default): Internet → External → Firewall/Router → Network → VM
-- **Bottom to Top**: Inverse direction
-- **Left to Right**: Horizontal layout
-- **Right to Left**: Inverse horizontal
+The UI automatically uses one left-to-right Traffic Topology. ELK applies a
+layered layout with orthogonal routing; there is no operator-facing layout or
+view-mode selector.
 
 ## Troubleshooting
 
@@ -347,7 +331,7 @@ project's stale containers before retrying with Compose v1:
 
 ```bash
 sudo docker-compose down --remove-orphans
-sudo docker rm -f topology-backend topology-frontend 2>/dev/null || true
+sudo docker rm -f topology-backend topology-frontend topology-postgres 2>/dev/null || true
 sudo docker-compose up -d --build
 ```
 
@@ -436,8 +420,7 @@ openstack-topology-explorer/
 │   └── Dockerfile
 │
 ├── config/
-│   ├── classification.yaml.example
-│   └── firewalls.yaml.example
+│   └── classification.yaml.example
 │
 ├── docker-compose.yml
 ├── .env.example

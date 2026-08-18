@@ -133,7 +133,7 @@ class DeviceClassifier:
                 if device_type == "firewall":
                     logger.warning(
                         "Ignoring name-based firewall patterns; use explicit "
-                        "server metadata, tags, or FIREWALL_CONFIG_PATH"
+                        "OpenStack server metadata or tags"
                     )
                     continue
                 patterns = device_config.get("patterns", [])
@@ -211,27 +211,10 @@ class DeviceClassifier:
 
         return None
 
-    def get_ha_group(self, server: dict) -> Optional[str]:
-        """Extract HA group from metadata or tags."""
-        metadata = server.get("metadata", {})
-
-        # Check metadata
-        if metadata.get("device_group"):
-            return metadata["device_group"]
-
-        # Check tags
-        tags = server.get("tags", [])
-        for tag in tags:
-            if tag.startswith("device_group="):
-                return tag.split("=", 1)[1]
-
-        return None
-
     def get_classification_metadata(self, server: dict) -> dict:
         """Get all classification-related metadata."""
         return {
             "vendor": self.get_device_vendor(server),
-            "ha_group": self.get_ha_group(server),
             "role": self.classify(server),
         }
 
@@ -270,7 +253,7 @@ class ClassificationEngine:
         """
         Classify a server and its interfaces.
 
-        Returns classification info including role, vendor, ha_group, interfaces.
+        Returns classification info including role, vendor, and interfaces.
         """
         server_id = server["id"]
         manual_override = self._manual_overrides.get(server_id)
@@ -282,12 +265,6 @@ class ClassificationEngine:
             if manual_override and manual_override.get("vendor")
             else self.device_classifier.get_device_vendor(server)
         )
-        ha_group = (
-            manual_override.get("ha_group")
-            if manual_override and manual_override.get("ha_group")
-            else self.device_classifier.get_ha_group(server)
-        )
-
         # Classify interfaces if it's a firewall
         interfaces = {}
         if role == "firewall" and networks:
@@ -303,31 +280,6 @@ class ClassificationEngine:
         return {
             "role": role,
             "vendor": vendor,
-            "ha_group": ha_group,
             "interfaces": interfaces,
             "manual_override": bool(manual_override),
         }
-
-    def get_ha_groups(self, servers: list[dict], ports: dict) -> dict[str, list[str]]:
-        """
-        Group firewall servers into HA groups.
-
-        Returns: {ha_group_name: [server_id, ...]}
-        """
-        ha_groups: dict[str, list[str]] = {}
-
-        for server in servers:
-            manual_override = self._manual_overrides.get(server["id"])
-            role = self.device_classifier.classify(server, manual_override=manual_override)
-            if role == "firewall":
-                ha_group = (
-                    manual_override.get("ha_group")
-                    if manual_override and manual_override.get("ha_group")
-                    else self.device_classifier.get_ha_group(server)
-                )
-                if ha_group:
-                    if ha_group not in ha_groups:
-                        ha_groups[ha_group] = []
-                    ha_groups[ha_group].append(server["id"])
-
-        return ha_groups
