@@ -12,7 +12,8 @@ services:
       - TOPOLOGY_SYNC_INTERVAL=${TOPOLOGY_SYNC_INTERVAL:-60}
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./topology.db}
       - TLS_VERIFY=${TLS_VERIFY:-true}
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      # pydantic-settings decodes list fields as JSON before validators run.
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
     env_file:
       - .env
     volumes:
