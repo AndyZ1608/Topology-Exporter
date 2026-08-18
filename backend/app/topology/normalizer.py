@@ -33,20 +33,39 @@ class TopologyNormalizer:
         """Normalize a Nova server to a topology node."""
         fixed_ips = []
         mac_addresses = []
+        interfaces = {}
+        security_groups = set()
 
         for port in ports:
+            port_ips = []
             for fixed_ip in port.get("fixed_ips", []):
                 if fixed_ip.get("ip_address"):
                     fixed_ips.append(fixed_ip["ip_address"])
+                    port_ips.append(fixed_ip["ip_address"])
             if port.get("mac_address"):
                 mac_addresses.append(port["mac_address"])
+            security_groups.update(port.get("security_groups", []))
+            interfaces[port["id"]] = {
+                "network_id": port.get("network_id"),
+                "mac_address": port.get("mac_address"),
+                "ip_addresses": port_ips,
+                "security_groups": port.get("security_groups", []),
+            }
+
+        metadata = dict(server.get("metadata", {}))
+        if server.get("availability_zone"):
+            metadata["availability_zone"] = server["availability_zone"]
+        if server.get("host"):
+            metadata["host"] = server["host"]
 
         properties = NodeProperties(
             ips=fixed_ips,
             mac_addresses=mac_addresses,
             flavor=server.get("flavor_name"),
-            metadata=server.get("metadata", {}),
+            metadata=metadata,
+            interfaces=interfaces,
             floating_ips=floating_ips or [],
+            security_groups=sorted(security_groups),
         )
 
         return TopologyNode(

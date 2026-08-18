@@ -8,6 +8,7 @@ import type {
   SyncStatus,
   ProjectsResponse,
   TopologyFilters,
+  CloudSummary,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -25,6 +26,11 @@ const api = axios.create({
  */
 export async function getHealth(): Promise<{ status: string; demo_mode: boolean }> {
   const response = await api.get('/health');
+  return response.data;
+}
+
+export async function getCloudSummary(): Promise<CloudSummary> {
+  const response = await api.get('/cloud/summary');
   return response.data;
 }
 

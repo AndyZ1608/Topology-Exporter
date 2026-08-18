@@ -99,17 +99,6 @@ class DeviceClassifier:
 
     def _load_default_rules(self):
         """Load default classification patterns."""
-        # Firewall patterns
-        self.classification_rules["firewall"] = [
-            ClassificationRule("palo_alto", [r"^PAN\d+", r"panorama", r"(?i)palo"]),
-            ClassificationRule("fortinet", [r"(?i)forti(gate|manager|analyzer)", r"(?i)fortinet"]),
-            ClassificationRule("checkpoint", [r"(?i)checkpoint", r"(?i)cloudguard", r"^CP-"]),
-            ClassificationRule("juniper", [r"(?i)srx", r"(?i)juniper", r"(?i)firefly"]),
-            ClassificationRule("cisco", [r"(?i)asa", r"(?i)firepower", r"(?i)cisco-fw"]),
-            ClassificationRule("linux_iptables", [r"(?i)fw", r"(?i)firewall", r"(?i)router"]),
-            ClassificationRule("pfsense", [r"(?i)pfsense", r"(?i)opnsense"]),
-        ]
-
         # Load balancer patterns
         self.classification_rules["load_balancer"] = [
             ClassificationRule("octavia", [r"(?i)octavia", r"(?i)loadbalancer"]),
@@ -141,6 +130,12 @@ class DeviceClassifier:
 
             devices = config.get("devices", {})
             for device_type, device_config in devices.items():
+                if device_type == "firewall":
+                    logger.warning(
+                        "Ignoring name-based firewall patterns; use explicit "
+                        "server metadata, tags, or FIREWALL_CONFIG_PATH"
+                    )
+                    continue
                 patterns = device_config.get("patterns", [])
                 if patterns:
                     self.classification_rules[device_type] = [
@@ -148,8 +143,10 @@ class DeviceClassifier:
                     ]
 
             logger.info(f"Loaded classification rules from {config_path}")
-        except Exception as e:
-            logger.warning(f"Could not load classification config: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Could not load classification config (%s)", type(exc).__name__
+            )
 
     def classify(
         self,
@@ -212,19 +209,6 @@ class DeviceClassifier:
             if tag.startswith("device_vendor="):
                 return tag.split("=", 1)[1]
 
-        # Try to infer from name
-        server_name = server.get("name", "").lower()
-        if "palo" in server_name or re.search(r"^pan\d+", server_name):
-            return "Palo Alto"
-        if "forti" in server_name:
-            return "Fortinet"
-        if "checkpoint" in server_name or "cloudguard" in server_name:
-            return "Check Point"
-        if "juniper" in server_name or "srx" in server_name:
-            return "Juniper"
-        if "cisco" in server_name:
-            return "Cisco"
-
         return None
 
     def get_ha_group(self, server: dict) -> Optional[str]:
@@ -264,7 +248,10 @@ class ClassificationEngine:
                 with open(config_path, encoding="utf-8") as config_file:
                     interface_config = yaml.safe_load(config_file) or {}
             except (OSError, yaml.YAMLError) as exc:
-                logger.warning("Could not load interface classification config: %s", exc)
+                logger.warning(
+                    "Could not load interface classification config (%s)",
+                    type(exc).__name__,
+                )
         self.interface_classifier = InterfaceClassifier(interface_config)
 
         # Manual overrides (loaded from DB)
@@ -290,8 +277,16 @@ class ClassificationEngine:
 
         # Classify device type
         role = self.device_classifier.classify(server, ports, manual_override)
-        vendor = self.device_classifier.get_device_vendor(server)
-        ha_group = self.device_classifier.get_ha_group(server)
+        vendor = (
+            manual_override.get("vendor")
+            if manual_override and manual_override.get("vendor")
+            else self.device_classifier.get_device_vendor(server)
+        )
+        ha_group = (
+            manual_override.get("ha_group")
+            if manual_override and manual_override.get("ha_group")
+            else self.device_classifier.get_ha_group(server)
+        )
 
         # Classify interfaces if it's a firewall
         interfaces = {}
@@ -322,9 +317,14 @@ class ClassificationEngine:
         ha_groups: dict[str, list[str]] = {}
 
         for server in servers:
-            role = self.device_classifier.classify(server)
+            manual_override = self._manual_overrides.get(server["id"])
+            role = self.device_classifier.classify(server, manual_override=manual_override)
             if role == "firewall":
-                ha_group = self.device_classifier.get_ha_group(server)
+                ha_group = (
+                    manual_override.get("ha_group")
+                    if manual_override and manual_override.get("ha_group")
+                    else self.device_classifier.get_ha_group(server)
+                )
                 if ha_group:
                     if ha_group not in ha_groups:
                         ha_groups[ha_group] = []

@@ -26,6 +26,11 @@ class RelationshipEngine:
         self._server_to_ports = {}
         self._network_to_subnets = {}
 
+    def add_edge(self, edge: TopologyEdge) -> TopologyEdge:
+        """Add an already-normalized edge without exposing internal storage."""
+        self._edges.append(edge)
+        return edge
+
     def add_server_port_relationship(
         self,
         server_id: str,
@@ -256,6 +261,35 @@ class RelationshipEngine:
         )
         self._edges.append(edge)
         return edge
+
+    def add_explicit_firewall_path(
+        self,
+        mapping_id: str,
+        downstream_network_id: str,
+        upstream_network_id: str,
+    ) -> tuple[TopologyEdge, TopologyEdge]:
+        """Add an operator-configured path without claiming OpenStack confirmation."""
+        properties = EdgeProperties(mapping_source="explicit_config")
+        downstream_edge = TopologyEdge(
+            id=f"edge-firewall-{mapping_id}-downstream-{downstream_network_id}",
+            source=f"network:{downstream_network_id}",
+            target=f"firewall:{mapping_id}",
+            relationship="egress_via",
+            inferred=True,
+            confidence=1.0,
+            properties=properties,
+        )
+        upstream_edge = TopologyEdge(
+            id=f"edge-firewall-{mapping_id}-upstream-{upstream_network_id}",
+            source=f"firewall:{mapping_id}",
+            target=f"network:{upstream_network_id}",
+            relationship="egress_via",
+            inferred=True,
+            confidence=1.0,
+            properties=properties,
+        )
+        self._edges.extend((downstream_edge, upstream_edge))
+        return downstream_edge, upstream_edge
 
     def get_edges(self) -> list[TopologyEdge]:
         """Get all edges."""

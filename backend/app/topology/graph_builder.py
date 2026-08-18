@@ -2,13 +2,16 @@
 Graph builder - orchestrates topology building from OpenStack resources.
 """
 import logging
+import re
 from typing import Optional
 
-from app.schemas.topology import TopologyNode, TopologyEdge, TopologyResponse
+from app.config import settings
+from app.schemas.topology import EdgeProperties, NodeProperties, TopologyNode, TopologyEdge, TopologyResponse
 from app.topology.normalizer import TopologyNormalizer
 from app.topology.classifier import ClassificationEngine
 from app.topology.relationship_engine import RelationshipEngine
 from app.topology.path_engine import PathEngine
+from app.topology.firewall_config import load_firewall_mappings
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,18 @@ class GraphBuilder:
     def __init__(self):
         self.normalizer = TopologyNormalizer()
         self.classifier = ClassificationEngine()
+        self.firewall_mappings = load_firewall_mappings(settings.firewall_config_path)
+        manual_overrides = {}
+        for mapping in self.firewall_mappings:
+            if mapping.type != "openstack":
+                continue
+            for server_id in mapping.server_ids:
+                manual_overrides[server_id] = {
+                    "role": "firewall",
+                    "vendor": mapping.vendor,
+                    "ha_group": mapping.id if len(mapping.server_ids) > 1 else None,
+                }
+        self.classifier.set_manual_overrides(manual_overrides)
         self.relationship_engine = RelationshipEngine()
         self.path_engine = PathEngine()
 
@@ -166,7 +181,15 @@ class GraphBuilder:
 
             # Update role based on classification
             server_node.role = classification["role"]
-            server_node.properties.interfaces = classification["interfaces"]
+            for port_id, interface_classification in classification["interfaces"].items():
+                server_node.properties.interfaces.setdefault(port_id, {}).update(
+                    interface_classification
+                )
+            server_node.properties.security_groups = sorted({
+                security_groups.get(group_id, {}).get("name", group_id)
+                for port in server_ports
+                for group_id in port.get("security_groups", [])
+            })
             server_node.properties.metadata["vendor"] = classification["vendor"]
             server_node.properties.metadata["ha_group"] = classification["ha_group"]
 
@@ -252,14 +275,17 @@ class GraphBuilder:
                 if self._is_internet_egress_network(network):
                     self.relationship_engine.add_internet_relationship(network["id"])
 
-        # 7. Build inferred firewall relationships
+        # 7. Add only operator-configured external firewall relationships.
+        self._add_external_firewall_mappings(networks)
+
+        # 8. Build inferred relationships for explicitly classified hosted firewalls.
         self._build_inferred_firewall_paths(servers, ports, server_classifications, networks)
 
-        # 8. Collect all edges
+        # 9. Collect all edges
         for edge in self.relationship_engine.get_edges():
             self.add_edge(edge)
 
-        # 9. Update path engine
+        # 10. Update path engine
         self.path_engine.set_topology(self._nodes, self._edges)
 
         return TopologyResponse(
@@ -275,19 +301,94 @@ class GraphBuilder:
             },
         )
 
+    def _add_external_firewall_mappings(self, networks: dict) -> None:
+        """Inject external firewalls only where both endpoints match explicitly."""
+        for mapping in self.firewall_mappings:
+            if mapping.type != "external":
+                continue
+
+            upstream_networks = [
+                network
+                for network in networks.values()
+                if mapping.upstream.external_network
+                and mapping.upstream.external_network in {network["id"], network.get("name")}
+            ]
+            downstream_networks = [
+                network
+                for network in networks.values()
+                if mapping.downstream.physical_network
+                and network.get("provider:physical_network") == mapping.downstream.physical_network
+                and network not in upstream_networks
+            ]
+
+            if not upstream_networks or not downstream_networks:
+                logger.warning(
+                    "Explicit firewall mapping %s is disconnected: upstream=%s downstream=%s",
+                    mapping.id,
+                    len(upstream_networks),
+                    len(downstream_networks),
+                )
+                continue
+
+            firewall_node = TopologyNode(
+                id=f"firewall:{mapping.id}",
+                resource_id=mapping.id,
+                resource_type="firewall",
+                role="firewall",
+                name=mapping.name,
+                status="ACTIVE",
+                layer="gateway",
+                properties=NodeProperties(
+                    ha_members=mapping.members,
+                    metadata={
+                        "vendor": mapping.vendor,
+                        "mode": mapping.mode,
+                        "mapping_source": "explicit_config",
+                        "external": True,
+                    },
+                ),
+            )
+            self.add_node(firewall_node)
+
+            for member in mapping.members:
+                member_key = re.sub(r"[^a-zA-Z0-9_-]+", "-", member).strip("-").lower()
+                member_node = TopologyNode(
+                    id=f"firewall-member:{mapping.id}:{member_key}",
+                    resource_id=f"{mapping.id}:{member_key}",
+                    resource_type="firewall_member",
+                    role="firewall",
+                    name=member,
+                    status="UNKNOWN",
+                    layer="gateway",
+                    parent_id=firewall_node.id,
+                    properties=NodeProperties(metadata={"vendor": mapping.vendor}),
+                )
+                self.add_node(member_node)
+                self.relationship_engine.add_edge(TopologyEdge(
+                    id=f"edge-ha-{mapping.id}-{member_key}",
+                    source=member_node.id,
+                    target=firewall_node.id,
+                    relationship="ha_member",
+                    inferred=False,
+                    confidence=1.0,
+                    properties=EdgeProperties(mapping_source="explicit_config"),
+                ))
+
+            for downstream in downstream_networks:
+                for upstream in upstream_networks:
+                    self.relationship_engine.add_explicit_firewall_path(
+                        mapping.id,
+                        downstream["id"],
+                        upstream["id"],
+                    )
+
     def _is_internet_egress_network(self, network: dict) -> bool:
         """Determine if a network represents Internet egress."""
         # External networks with router:external=True
         if network.get("router:external"):
             return True
 
-        # Provider networks
-        if network.get("provider:physical_network"):
-            name = network.get("name", "").lower()
-            if any(keyword in name for keyword in ["wan", "internet", "ext", "external", "public"]):
-                return True
-
-        # Check tags
+        # Explicit operator tags can mark non-Neutron-external provider networks.
         tags = network.get("tags", [])
         for tag in tags:
             if tag.lower() in ["wan", "internet", "internet_egress", "public"]:

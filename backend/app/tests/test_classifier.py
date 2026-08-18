@@ -12,29 +12,29 @@ class TestDeviceClassifier:
     def classifier(self):
         return DeviceClassifier()
 
-    def test_classify_palo_alto_by_name(self, classifier):
-        """Test Palo Alto detection by name."""
+    def test_firewall_like_name_is_not_implicitly_trusted(self, classifier):
+        """A name alone must never create an infrastructure relationship."""
         server = {"name": "PAN01", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
         server = {"name": "palo-fw-01", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
     def test_classify_fortinet_by_name(self, classifier):
         """Test Fortinet detection by name."""
         server = {"name": "FortiGate-100F", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
         server = {"name": "fortinet-fw", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
     def test_classify_checkpoint_by_name(self, classifier):
         """Test Check Point detection by name."""
         server = {"name": "CP-12345", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
         server = {"name": "cloudguard-gw", "metadata": {}, "tags": []}
-        assert classifier.classify(server) == "firewall"
+        assert classifier.classify(server) == "vm"
 
     def test_classify_regular_vm(self, classifier):
         """Test regular VM classification."""
@@ -85,13 +85,12 @@ class TestDeviceClassifier:
         }
         assert classifier.get_device_vendor(server) == "Palo Alto"
 
-    def test_get_device_vendor_inferred(self, classifier):
-        """Test vendor inference from name."""
+    def test_device_vendor_is_not_inferred_from_name(self, classifier):
         server = {"name": "PAN01", "metadata": {}, "tags": []}
-        assert classifier.get_device_vendor(server) == "Palo Alto"
+        assert classifier.get_device_vendor(server) is None
 
         server = {"name": "fortigate-fw", "metadata": {}, "tags": []}
-        assert classifier.get_device_vendor(server) == "Fortinet"
+        assert classifier.get_device_vendor(server) is None
 
     def test_get_ha_group(self, classifier):
         """Test HA group extraction."""

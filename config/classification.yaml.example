@@ -2,23 +2,8 @@
 # This file defines patterns for classifying OpenStack servers as firewalls, load balancers, etc.
 
 devices:
-  firewall:
-    patterns:
-      - "^PAN[0-9]+"           # Palo Alto
-      - "(?i)palo"            # Case-insensitive palo
-      - "(?i)fortigate"        # Fortinet
-      - "(?i)checkpoint"       # Check Point
-      - "(?i)cloudguard"       # Check Point CloudGuard
-      - "(?i)juniper"          # Juniper
-      - "(?i)srx"              # Juniper SRX
-      - "(?i)asa"               # Cisco ASA
-      - "(?i)firepower"        # Cisco Firepower
-      - "(?i)pfsense"          # pfSense
-      - "(?i)opnsense"         # OPNsense
-      - "(?i)vyos"             # VyOS
-      - "(?i)untangle"         # Untangle
-      - "(?i)sonicwall"        # SonicWall
-
+  # Firewall classification is intentionally absent. Use explicit Nova metadata
+  # (device_role=firewall), an explicit device_role tag, or firewalls.yaml.
   load_balancer:
     patterns:
       - "(?i)haproxy"

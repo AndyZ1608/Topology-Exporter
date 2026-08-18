@@ -13,6 +13,12 @@ def test_expected_api_v1_routes_are_registered_once():
         "/api/v1/topology",
         "/api/v1/nodes/{node_id}",
         "/api/v1/path/{server_id}/internet",
+        "/api/v1/cloud/summary",
+        "/api/v1/servers/{server_id}",
+        "/api/v1/networks/{network_id}",
+        "/api/v1/routers/{router_id}",
+        "/api/v1/search",
+        "/api/v1/discovery/refresh",
     ):
         assert expected_path in paths
 

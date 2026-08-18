@@ -40,8 +40,8 @@ class IdentityCollector:
             self._projects_cache = projects
             logger.info(f"Collected {len(projects)} projects")
             return projects
-        except Exception as e:
-            logger.error(f"Failed to collect projects: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect projects (%s)", type(exc).__name__)
             raise
 
     def get_project_name(self, project_id: str) -> str:
@@ -73,8 +73,8 @@ class IdentityCollector:
             self._domains_cache = domains
             logger.info(f"Collected {len(domains)} domains")
             return domains
-        except Exception as e:
-            logger.error(f"Failed to collect domains: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect domains (%s)", type(exc).__name__)
             return {}
 
     def get_project_info(self, project_id: str) -> Optional[dict]:

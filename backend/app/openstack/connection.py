@@ -4,6 +4,7 @@ OpenStack connection manager.
 import logging
 from typing import Optional
 import openstack
+from openstack.config import OpenStackConfig
 from openstack.connection import Connection
 
 from app.config import settings
@@ -35,18 +36,19 @@ class OpenStackConnectionManager:
         try:
             # Load from clouds.yaml
             if settings.clouds_yaml and settings.clouds_yaml.exists():
-                self._connection = openstack.connect(
+                loader = OpenStackConfig(config_files=[str(settings.clouds_yaml)])
+                cloud_config = loader.get_one(
                     cloud=settings.OS_CLOUD,
-                    clouds_yaml=str(settings.clouds_yaml),
+                    verify=settings.TLS_VERIFY,
+                    api_timeout=settings.OPENSTACK_TIMEOUT,
                 )
+                self._connection = openstack.connect(config=cloud_config)
                 logger.info(f"Connected to OpenStack cloud: {settings.OS_CLOUD}")
                 return self._connection
 
             # Fallback to environment variables
             self._connection = openstack.connect(
                 auth_url=settings.OS_AUTH_URL,
-                appCredentialId=None,
-                appCredentialName=None,
                 username=settings.OS_USERNAME,
                 password=(
                     settings.OS_PASSWORD.get_secret_value()
@@ -57,12 +59,16 @@ class OpenStackConnectionManager:
                 user_domain_name=settings.OS_USER_DOMAIN_NAME,
                 project_domain_name=settings.OS_PROJECT_DOMAIN_NAME,
                 region_name=settings.OS_REGION_NAME,
+                verify=settings.TLS_VERIFY,
+                api_timeout=settings.OPENSTACK_TIMEOUT,
             )
-            logger.info(f"Connected to OpenStack via environment variables")
+            logger.info("Connected to OpenStack via environment variables")
             return self._connection
 
-        except Exception as e:
-            logger.error(f"Failed to connect to OpenStack: {e}")
+        except Exception as exc:
+            # Authentication exceptions may embed request details. Log only the
+            # exception class so credentials and tokens cannot leak.
+            logger.error("Failed to connect to OpenStack (%s)", type(exc).__name__)
             raise
 
     def close(self):
@@ -70,8 +76,8 @@ class OpenStackConnectionManager:
         if self._connection:
             try:
                 self._connection.close()
-            except Exception as e:
-                logger.warning(f"Error closing connection: {e}")
+            except Exception as exc:
+                logger.warning("Error closing OpenStack connection (%s)", type(exc).__name__)
             self._connection = None
 
     def reconnect(self):

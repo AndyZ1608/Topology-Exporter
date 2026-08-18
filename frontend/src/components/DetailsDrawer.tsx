@@ -211,6 +211,53 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
                 </div>
               </section>
             )}
+
+            {(node.properties.metadata?.availability_zone || node.properties.metadata?.host) && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Placement</h3>
+                <dl className="space-y-1 text-sm">
+                  {node.properties.metadata.availability_zone && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Availability Zone</dt>
+                      <dd className="text-gray-900">{String(node.properties.metadata.availability_zone)}</dd>
+                    </div>
+                  )}
+                  {node.properties.metadata.host && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Host</dt>
+                      <dd className="text-gray-900">{String(node.properties.metadata.host)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
+            )}
+
+            {Object.keys(node.properties.interfaces || {}).length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Interfaces</h3>
+                <div className="space-y-3">
+                  {Object.entries(node.properties.interfaces).map(([portId, info]) => (
+                    <div key={portId} className="rounded border border-gray-200 p-2 text-xs">
+                      <div className="font-mono text-gray-500 mb-1">{portId}</div>
+                      {info.network_id && <div>Network: <span className="font-mono">{info.network_id}</span></div>}
+                      {info.mac_address && <div>MAC: <span className="font-mono">{info.mac_address}</span></div>}
+                      {info.ip_addresses?.map((ip) => <div key={ip}>IP: <span className="font-mono">{ip}</span></div>)}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {node.properties.security_groups?.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Security Groups</h3>
+                <div className="flex flex-wrap gap-1">
+                  {node.properties.security_groups.map((group) => (
+                    <span key={group} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">{group}</span>
+                  ))}
+                </div>
+              </section>
+            )}
           </>
         )}
 

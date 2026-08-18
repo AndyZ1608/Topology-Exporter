@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
     # Complete one initial snapshot before scheduling periodic refreshes. Starting
     # the thread first caused two syncs to race during every application startup.
     sync_service = get_sync_service()
+    sync_service.restore_cached_snapshot()
     logger.info("Performing initial topology sync...")
     sync_service.sync()
     sync_service.start_background_sync()

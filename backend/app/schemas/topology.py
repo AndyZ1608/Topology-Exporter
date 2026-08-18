@@ -74,6 +74,7 @@ class EdgeProperties(BaseModel):
     port_id: Optional[str] = None
     subnet_id: Optional[str] = None
     trunk_id: Optional[str] = None
+    mapping_source: Optional[str] = None
 
 
 class TopologyEdge(BaseModel):

@@ -8,7 +8,7 @@ A production-oriented web application that connects to an existing OpenStack clo
 
 - **Traffic-Path-Centric Topology**: Visualizes the path from VM to Internet
 - **Multi-Project Support**: See topology across all OpenStack projects
-- **Firewall Detection**: Automatically identifies firewalls (Palo Alto, Fortinet, Check Point, etc.)
+- **Explicit Firewall Mapping**: Supports hosted and external firewall/HA mappings without unsafe name-based inference
 - **HA Group Support**: Groups clustered firewalls together
 - **Trunk Support**: Visualizes trunk connections
 - **Internet Path Discovery**: Shows the logical path from any VM to the Internet
@@ -76,8 +76,10 @@ cd openstack-topology-explorer
 cp .env.example .env
 
 # Start in demo mode (no OpenStack required)
-# Docker Compose v2 is required (the command has a space, not a hyphen).
-DEMO_MODE=true docker compose up -d
+# Docker Compose v2:
+DEMO_MODE=true docker compose up -d --build
+# Or the Compose v1 command installed on older Ubuntu hosts:
+DEMO_MODE=true docker-compose up -d --build
 
 # Access the application
 open http://localhost:5173
@@ -122,7 +124,13 @@ npm run dev
 
 **Option 1: Using clouds.yaml (Recommended)**
 
-Create or edit `~/.config/openstack/clouds.yaml`:
+For Docker, copy the example to the already-mounted `config` directory:
+
+```bash
+cp clouds.yaml.example config/clouds.yaml
+```
+
+Then edit `config/clouds.yaml`:
 
 ```yaml
 clouds:
@@ -142,6 +150,7 @@ clouds:
 Set the cloud name in `.env`:
 ```bash
 OS_CLOUD=mycloud
+CLOUDS_YAML_PATH=/app/config/clouds.yaml
 ```
 
 **Option 2: Environment Variables**
@@ -179,13 +188,16 @@ Copy and customize the classification configuration:
 cp config/classification.yaml.example config/classification.yaml
 ```
 
-The classifier uses these priorities:
-1. Manual classification (stored in database)
-2. Server metadata (`device_role`, `device_vendor`, `device_group`)
-3. OpenStack tags
-4. `classification.yaml` patterns
-5. Regex pattern matching on server names
-6. Default: `vm`
+Firewall classification is explicit by design. A firewall-looking VM name such
+as `PAN01` or `FW01` remains a regular VM unless one of these is configured:
+
+1. A manual classification override
+2. Server metadata (`device_role=firewall`)
+3. An OpenStack tag (`device_role=firewall`)
+4. A Nova server UUID in `firewalls.yaml`
+
+Name patterns remain available for non-firewall presentation roles, but never
+create firewall or egress relationships.
 
 Example metadata for firewall classification:
 
@@ -193,6 +205,32 @@ Example metadata for firewall classification:
 # On server metadata
 openstack server set --property device_role=firewall --property device_vendor="Palo Alto" --property device_group=PAN-HA my-firewall-vm
 ```
+
+### Explicit and external firewall mapping
+
+Copy the safe example and edit it with your real network names, physical
+networks, and (for hosted appliances) canonical Nova UUIDs:
+
+```bash
+cp config/firewalls.yaml.example config/firewalls.yaml
+```
+
+External appliances are injected only when both configured endpoints resolve.
+These edges are marked as logical/configured relationships and are never
+presented as OpenStack-confirmed datapaths. An invalid or incomplete mapping is
+logged and left disconnected instead of inventing a path.
+
+### Inventory cache (PostgreSQL)
+
+Docker Compose starts PostgreSQL and stores normalized topology snapshots in the
+`topology-postgres-data` volume. Each snapshot records `discovered_at` and
+`last_seen_at`. This cache is non-authoritative: OpenStack remains the source of
+truth, and the backend keeps the last valid snapshot available if a later
+collector or the database is temporarily unavailable.
+
+Set the same strong password in `POSTGRES_PASSWORD` and `DATABASE_URL` in
+`.env`. For backend-only development, SQLite remains available by setting
+`DATABASE_URL=sqlite:///./topology.db`.
 
 ## API Endpoints
 
@@ -233,6 +271,12 @@ GET /api/v1/path/{server_id}/paths
 GET /api/v1/sync/status
 POST /api/v1/sync/refresh
 GET /api/v1/health
+GET /api/v1/cloud/summary
+GET /api/v1/search?q=10.0.30.15
+GET /api/v1/servers/{server_id}
+GET /api/v1/networks/{network_id}
+GET /api/v1/routers/{router_id}
+POST /api/v1/discovery/refresh
 ```
 
 ## Demo Mode
@@ -271,11 +315,11 @@ Demo topology includes:
 | router_interface | Router interface | Solid |
 | external_gateway | Router to external network | Solid |
 | internet_uplink | External network to Internet | Dashed |
-| egress_via | Inferred firewall path | Dashed |
+| egress_via | Explicitly configured or clearly labeled inferred firewall path | Dashed |
 
 ### Layout Directions
 
-- **Top to Bottom** (default): VM → Network → Firewall → Internet
+- **Top to Bottom** (default): Internet → External → Firewall/Router → Network → VM
 - **Bottom to Top**: Inverse direction
 - **Left to Right**: Horizontal layout
 - **Right to Left**: Inverse horizontal
@@ -375,6 +419,7 @@ openstack-topology-explorer/
 │   │   ├── api/           # FastAPI endpoints
 │   │   ├── openstack/     # OpenStack collectors
 │   │   ├── topology/      # Topology engines
+│   │   ├── repositories/  # PostgreSQL/SQLite snapshot cache
 │   │   ├── schemas/      # Pydantic models
 │   │   ├── services/      # Business logic
 │   │   └── main.py        # Application entry
@@ -391,7 +436,8 @@ openstack-topology-explorer/
 │   └── Dockerfile
 │
 ├── config/
-│   └── classification.yaml.example
+│   ├── classification.yaml.example
+│   └── firewalls.yaml.example
 │
 ├── docker-compose.yml
 ├── .env.example

@@ -2,10 +2,11 @@
  * Header component.
  */
 import React from 'react';
-import type { SyncStatus } from '@/types';
+import type { CloudSummary, SyncStatus } from '@/types';
 
 interface HeaderProps {
   syncStatus: SyncStatus | null;
+  cloudSummary: CloudSummary | null;
   onRefresh: () => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
@@ -13,6 +14,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({
   syncStatus,
+  cloudSummary,
   onRefresh,
   onToggleSidebar,
   sidebarOpen,
@@ -84,6 +86,23 @@ const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {cloudSummary && (
+        <div className="hidden xl:flex items-center gap-5 text-xs">
+          {[
+            ['Projects', cloudSummary.projects],
+            ['VMs', cloudSummary.servers],
+            ['Networks', cloudSummary.networks],
+            ['Routers', cloudSummary.routers],
+            ['Floating IPs', cloudSummary.floating_ips],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="text-center">
+              <div className="font-semibold text-gray-900">{value}</div>
+              <div className="text-gray-500">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Right side */}
       <div className="flex items-center gap-4">

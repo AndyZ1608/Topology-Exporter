@@ -34,8 +34,8 @@ class ComputeCollector:
             self._servers_cache = servers
             logger.info(f"Collected {len(servers)} servers")
             return servers
-        except Exception as e:
-            logger.error(f"Failed to collect servers: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect servers (%s)", type(exc).__name__)
             raise
 
     def _normalize_server(self, server) -> dict:
@@ -77,6 +77,7 @@ class ComputeCollector:
             "flavor_id": flavor_id,
             "flavor_name": flavor_name,
             "host": getattr(server, "host", None),
+            "availability_zone": getattr(server, "availability_zone", None),
             "tags": list(server.tags) if hasattr(server, "tags") and server.tags else [],
         }
 
@@ -92,8 +93,10 @@ class ComputeCollector:
             server = self.conn.compute.get_server(server_id)
             if server:
                 return self._normalize_server(server)
-        except Exception as e:
-            logger.error(f"Failed to get server {server_id}: {e}")
+        except Exception as exc:
+            logger.error(
+                "Failed to get server %s (%s)", server_id, type(exc).__name__
+            )
         return None
 
     def get_servers_by_project(self, project_id: str) -> list[dict]:

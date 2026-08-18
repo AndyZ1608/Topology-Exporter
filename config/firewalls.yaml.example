@@ -1,0 +1,25 @@
+# Explicit firewall mappings only. Never put credentials in this file.
+firewalls:
+  # OpenStack-hosted firewalls must use canonical Nova server UUIDs.
+  - id: pan-ha-openstack
+    name: Palo Alto HA
+    vendor: paloalto
+    type: openstack
+    mode: active-passive
+    server_ids:
+      - 22222222-2222-2222-2222-222222222221
+      - 22222222-2222-2222-2222-222222222222
+
+  # External appliances are connected only through explicit network mappings.
+  - id: dc-pa-external
+    name: DC Palo Alto HA
+    vendor: paloalto
+    type: external
+    mode: active-passive
+    members:
+      - PAN01
+      - PAN02
+    upstream:
+      external_network: PUBLIC-NET
+    downstream:
+      physical_network: physnet1

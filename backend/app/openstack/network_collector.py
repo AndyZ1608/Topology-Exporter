@@ -58,8 +58,10 @@ class NetworkCollector:
                 "trunks": self._trunks_cache,
                 "security_groups": self._security_groups_cache,
             }
-        except Exception as e:
-            logger.error(f"Failed to collect network resources: {e}")
+        except Exception as exc:
+            logger.error(
+                "Failed to collect network resources (%s)", type(exc).__name__
+            )
             raise
 
     def _collect_networks(self):
@@ -70,14 +72,35 @@ class NetworkCollector:
                 "name": network.name,
                 "project_id": network.project_id,
                 "router:external": network.router_external,
-                "provider:network_type": getattr(network, "provider:network_type", None),
-                "provider:physical_network": getattr(network, "provider:physical_network", None),
-                "provider:segmentation_id": getattr(network, "provider:segmentation_id", None),
+                "provider:network_type": self._resource_value(
+                    network, "provider_network_type", "provider:network_type"
+                ),
+                "provider:physical_network": self._resource_value(
+                    network, "provider_physical_network", "provider:physical_network"
+                ),
+                "provider:segmentation_id": self._resource_value(
+                    network, "provider_segmentation_id", "provider:segmentation_id"
+                ),
                 "shared": network.shared,
                 "status": network.status,
                 "subnets": list(network.subnets) if network.subnets else [],
                 "tags": list(network.tags) if hasattr(network, "tags") and network.tags else [],
             }
+
+    @staticmethod
+    def _resource_value(resource, *names):
+        """Read SDK attributes across openstacksdk/Neutron naming variants."""
+        for name in names:
+            value = getattr(resource, name, None)
+            if value is not None:
+                return value
+            try:
+                value = resource.get(name)
+            except (AttributeError, TypeError):
+                value = None
+            if value is not None:
+                return value
+        return None
 
     def _collect_subnets(self):
         """Collect all subnets."""
@@ -189,8 +212,8 @@ class NetworkCollector:
                             for sp in (trunk.sub_ports if hasattr(trunk, "sub_ports") else [])
                         ],
                     }
-        except Exception as e:
-            logger.warning(f"Trunk collection not available: {e}")
+        except Exception as exc:
+            logger.warning("Trunk collection not available (%s)", type(exc).__name__)
 
     def _collect_security_groups(self):
         """Collect all security groups."""

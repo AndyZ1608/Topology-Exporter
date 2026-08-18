@@ -6,8 +6,8 @@ import TopologyCanvas from './topology/TopologyCanvas';
 import Sidebar from './components/Sidebar';
 import DetailsDrawer from './components/DetailsDrawer';
 import Header from './components/Header';
-import type { TopologyFilters, TopologyNode, SyncStatus } from './types';
-import { getSyncStatus, refreshTopology } from './api/topology';
+import type { CloudSummary, TopologyFilters, TopologyNode, SyncStatus } from './types';
+import { getCloudSummary, getSyncStatus, refreshTopology } from './api/topology';
 
 const App: React.FC = () => {
   const [filters, setFilters] = useState<TopologyFilters>({
@@ -20,23 +20,22 @@ const App: React.FC = () => {
 
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [cloudSummary, setCloudSummary] = useState<CloudSummary | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Poll sync status
+  // Load once. Further discovery is explicitly operator-triggered via Refresh.
   useEffect(() => {
-    const pollStatus = async () => {
+    const loadStatus = async () => {
       try {
         const status = await getSyncStatus();
         setSyncStatus(status);
+        setCloudSummary(await getCloudSummary());
       } catch (err) {
         console.error('Failed to get sync status:', err);
       }
     };
 
-    pollStatus();
-    const interval = setInterval(pollStatus, 5000);
-
-    return () => clearInterval(interval);
+    loadStatus();
   }, []);
 
   // Handle filter changes
@@ -55,6 +54,7 @@ const App: React.FC = () => {
       await refreshTopology();
       const status = await getSyncStatus();
       setSyncStatus(status);
+      setCloudSummary(await getCloudSummary());
     } catch (err) {
       console.error('Failed to refresh topology:', err);
     }
@@ -70,6 +70,7 @@ const App: React.FC = () => {
       {/* Header */}
       <Header
         syncStatus={syncStatus}
+        cloudSummary={cloudSummary}
         onRefresh={handleRefresh}
         onToggleSidebar={toggleSidebar}
         sidebarOpen={sidebarOpen}

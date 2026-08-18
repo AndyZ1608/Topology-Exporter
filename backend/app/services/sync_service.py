@@ -12,6 +12,7 @@ from app.openstack import IdentityCollector, ComputeCollector, NetworkCollector
 from app.topology.graph_builder import GraphBuilder
 from app.topology.path_engine import PathEngine
 from app.schemas.topology import TopologyResponse, SyncStatusResponse
+from app.repositories import SnapshotRepository
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,26 @@ class TopologySyncService:
         self._network_collector = NetworkCollector()
         self._graph_builder = GraphBuilder()
         self._path_engine = PathEngine()
+        self._snapshot_repository = SnapshotRepository(settings.DATABASE_URL)
+
+    def restore_cached_snapshot(self) -> bool:
+        """Restore the latest non-authoritative snapshot if the cache is available."""
+        try:
+            topology = self._snapshot_repository.load_latest()
+        except Exception as exc:
+            logger.warning("Could not load topology cache (%s)", type(exc).__name__)
+            return False
+        if topology is None:
+            return False
+        self._current_topology = topology
+        self._path_engine.set_topology(topology.nodes, topology.edges)
+        logger.info(
+            "Cached topology restored nodes=%s edges=%s discovered_at=%s",
+            len(topology.nodes),
+            len(topology.edges),
+            topology.timestamp.isoformat(),
+        )
+        return True
 
     @property
     def current_topology(self) -> Optional[TopologyResponse]:
@@ -82,8 +103,8 @@ class TopologySyncService:
         while not self._stop_event.wait(timeout=self._sync_interval):
             try:
                 self.sync()
-            except Exception as e:
-                logger.error(f"Background sync error: {e}")
+            except Exception as exc:
+                logger.error("Background sync error (%s)", type(exc).__name__)
 
     def sync(self, force: bool = False) -> SyncStatusResponse:
         """
@@ -101,6 +122,7 @@ class TopologySyncService:
             return self._sync_status
 
         start_time = time.time()
+        logger.info("Discovery started")
         self._sync_status.status = "syncing"
         self._sync_status.failed_collectors = []
 
@@ -126,6 +148,15 @@ class TopologySyncService:
                     self._current_topology.edges,
                 )
 
+                try:
+                    self._snapshot_repository.save(
+                        self._current_topology,
+                        status="partial" if failed_collectors else "success",
+                    )
+                except Exception as exc:
+                    # Cache availability must not change the discovered cloud state.
+                    logger.warning("Could not persist topology cache (%s)", type(exc).__name__)
+
             duration = time.time() - start_time
             partial = bool(failed_collectors)
             self._sync_status = SyncStatusResponse(
@@ -143,21 +174,23 @@ class TopologySyncService:
                 edge_count=len(self._current_topology.edges) if self._current_topology else 0,
             )
             logger.info(
-                "Sync completed: %s nodes, %s edges%s",
+                "Discovery completed nodes=%s edges=%s duration_seconds=%.3f%s",
                 self._sync_status.node_count,
                 self._sync_status.edge_count,
+                duration,
                 f" (partial: {', '.join(failed_collectors)})" if partial else "",
             )
 
-        except Exception as e:
+        except Exception as exc:
             duration = time.time() - start_time
+            safe_error = f"Topology sync failed ({type(exc).__name__})"
             # Check if we have partial data
             if self._current_topology:
                 self._sync_status = SyncStatusResponse(
                     status="partial",
                     last_sync=datetime.now(timezone.utc),
                     last_duration=duration,
-                    last_error=str(e),
+                    last_error=safe_error,
                     partial=True,
                     failed_collectors=self._sync_status.failed_collectors,
                     node_count=len(self._current_topology.nodes),
@@ -168,13 +201,13 @@ class TopologySyncService:
                     status="failed",
                     last_sync=datetime.now(timezone.utc),
                     last_duration=duration,
-                    last_error=str(e),
+                    last_error=safe_error,
                     partial=False,
                     failed_collectors=self._sync_status.failed_collectors,
                     node_count=0,
                     edge_count=0,
                 )
-            logger.error(f"Sync failed: {e}")
+            logger.error("Sync failed (%s)", type(exc).__name__)
 
         finally:
             self._sync_lock.release()
@@ -198,23 +231,23 @@ class TopologySyncService:
         # Collect resources with error handling
         try:
             projects = self._identity_collector.collect_projects()
-        except Exception as e:
-            logger.error(f"Failed to collect projects: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect projects (%s)", type(exc).__name__)
             failed_collectors.append("keystone")
             projects = {}
 
         try:
             servers = self._compute_collector.collect_servers()
-        except Exception as e:
-            logger.error(f"Failed to collect servers: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect servers (%s)", type(exc).__name__)
             failed_collectors.append("nova")
             servers = {}
 
         try:
             network_data = self._network_collector.collect_all()
             self._network_collector.link_router_interfaces()
-        except Exception as e:
-            logger.error(f"Failed to collect network resources: {e}")
+        except Exception as exc:
+            logger.error("Failed to collect network resources (%s)", type(exc).__name__)
             failed_collectors.append("neutron")
             network_data = {
                 "networks": {},
@@ -237,6 +270,18 @@ class TopologySyncService:
             floating_ips=network_data.get("floating_ips", {}),
             trunks=network_data.get("trunks", {}),
             security_groups=network_data.get("security_groups", {}),
+        )
+        logger.info(
+            "Resources discovered projects=%s servers=%s ports=%s networks=%s "
+            "subnets=%s routers=%s floating_ips=%s trunks=%s",
+            len(projects),
+            len(servers),
+            len(network_data.get("ports", {})),
+            len(network_data.get("networks", {})),
+            len(network_data.get("subnets", {})),
+            len(network_data.get("routers", {})),
+            len(network_data.get("floating_ips", {})),
+            len(network_data.get("trunks", {})),
         )
         return topology, failed_collectors
 
@@ -264,6 +309,66 @@ class TopologySyncService:
                 return node.model_dump()
         return None
 
+    def get_resource(self, resource_type: str, resource_id: str) -> Optional[dict]:
+        """Return a normalized resource without exposing an SDK object."""
+        if not self._current_topology:
+            return None
+        for node in self._current_topology.nodes:
+            if node.resource_type == resource_type and node.resource_id == resource_id:
+                return self.get_node(node.id)
+        return None
+
+    def get_cloud_summary(self) -> dict:
+        """Return operational inventory totals from the current snapshot."""
+        nodes = self._current_topology.nodes if self._current_topology else []
+        projects = {node.project_id for node in nodes if node.project_id}
+        floating_ips = {
+            address
+            for node in nodes
+            for address in node.properties.floating_ips
+        }
+        return {
+            "projects": len(projects),
+            "servers": sum(node.resource_type == "server" for node in nodes),
+            "networks": sum(node.resource_type == "network" for node in nodes),
+            "subnets": sum(node.resource_type == "subnet" for node in nodes),
+            "routers": sum(node.resource_type == "router" for node in nodes),
+            "floating_ips": len(floating_ips),
+            "last_sync": (
+                self._sync_status.last_sync.isoformat()
+                if self._sync_status.last_sync
+                else None
+            ),
+            "sync_status": self._sync_status.status,
+            "partial": self._sync_status.partial,
+        }
+
+    def search(self, query: str) -> list[dict]:
+        """Search normalized names, UUIDs, projects, IPs, and subnet CIDRs."""
+        if not self._current_topology:
+            return []
+        needle = query.strip().lower()
+        if not needle:
+            return []
+
+        matches = []
+        for node in self._current_topology.nodes:
+            searchable = [
+                node.id,
+                node.resource_id,
+                node.name,
+                node.project_id or "",
+                node.project_name or "",
+                node.properties.cidr or "",
+                node.properties.gateway_ip or "",
+                *node.properties.ips,
+                *node.properties.floating_ips,
+                *node.properties.mac_addresses,
+            ]
+            if any(needle in value.lower() for value in searchable):
+                matches.append(node.model_dump())
+        return matches
+
     def get_topology(
         self,
         project_ids: list[str] = None,
@@ -284,13 +389,19 @@ class TopologySyncService:
             project_id_set = set(project_ids)
             nodes = [
                 n for n in nodes
-                if n.project_id is None or n.project_id in project_id_set
+                if n.project_id is None
+                or n.project_id in project_id_set
+                or n.properties.is_shared
+                or n.properties.is_external
             ]
 
         # Filter by resource type
         if resource_types:
             type_set = set(resource_types)
-            nodes = [n for n in nodes if n.resource_type in type_set]
+            nodes = [
+                n for n in nodes
+                if n.resource_type in type_set or n.role in type_set
+            ]
 
         # Filter by status
         if status:
@@ -304,7 +415,9 @@ class TopologySyncService:
                 if search_lower in n.name.lower()
                 or search_lower in n.resource_id.lower()
                 or (n.project_name and search_lower in n.project_name.lower())
-                or any(search_lower in ip for ip in n.properties.ips)
+                or any(search_lower in ip.lower() for ip in n.properties.ips)
+                or any(search_lower in ip.lower() for ip in n.properties.floating_ips)
+                or (n.properties.cidr and search_lower in n.properties.cidr.lower())
             ]
 
         # Get edges between remaining nodes

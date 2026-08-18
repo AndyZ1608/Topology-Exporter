@@ -69,8 +69,10 @@ function toELKFormat(
 
   const elkEdges: ELKEdge[] = edges.map((edge) => ({
     id: edge.id,
-    sources: [edge.source],
-    targets: [edge.target],
+    // Traffic edges point VM -> Internet. Reverse them only for placement so
+    // the operational hierarchy renders Internet -> VM from top to bottom.
+    sources: [edge.target],
+    targets: [edge.source],
     properties: {
       inferred: edge.inferred,
     },
@@ -132,8 +134,8 @@ export async function applyLayout(
       const originalEdge = topologyEdges.find((e) => e.id === elkEdge.id);
       return {
         id: elkEdge.id,
-        source: elkEdge.sources[0] || '',
-        target: elkEdge.targets[0] || '',
+        source: originalEdge?.source || '',
+        target: originalEdge?.target || '',
         type: originalEdge?.inferred ? 'inferred' : 'confirmed',
         animated: originalEdge?.inferred || false,
         style: {
@@ -172,7 +174,7 @@ function fallbackLayout(
   }
 
   // Layer order
-  const layerOrder = ['workload', 'network', 'gateway', 'external', 'internet'];
+  const layerOrder = ['internet', 'external', 'gateway', 'network', 'workload'];
   const sortedLayers = layerOrder.filter((l) => layers[l]);
 
   // Assign positions

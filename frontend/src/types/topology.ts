@@ -13,10 +13,16 @@ export interface NodeProperties {
   is_external: boolean;
   is_shared: boolean;
   ha_members: string[];
-  interfaces: Record<string, string>;
+  interfaces: Record<string, {
+    role?: string;
+    network_id?: string;
+    mac_address?: string;
+    ip_addresses?: string[];
+    security_groups?: string[];
+  }>;
   vm_count: number;
   flavor?: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, string | number | boolean | null>;
   external_gateway?: {
     network_id: string;
     enable_snat?: boolean;
@@ -28,7 +34,7 @@ export interface NodeProperties {
 export interface TopologyNode {
   id: string;
   resource_id: string;
-  resource_type: 'server' | 'network' | 'subnet' | 'router' | 'floatingip' | 'trunk' | 'ha_group' | 'internet';
+  resource_type: 'server' | 'network' | 'subnet' | 'router' | 'floatingip' | 'trunk' | 'ha_group' | 'firewall' | 'firewall_member' | 'internet';
   role: 'vm' | 'firewall' | 'load_balancer' | 'router' | 'network' | 'subnet' | 'internet' | 'ha_group' | 'unknown';
   name: string;
   project_id?: string;
@@ -50,6 +56,7 @@ export interface EdgeProperties {
   port_id?: string;
   subnet_id?: string;
   trunk_id?: string;
+  mapping_source?: string;
 }
 
 export interface TopologyEdge {
@@ -99,6 +106,18 @@ export interface Project {
 export interface ProjectsResponse {
   projects: Project[];
   total: number;
+}
+
+export interface CloudSummary {
+  projects: number;
+  servers: number;
+  networks: number;
+  subnets: number;
+  routers: number;
+  floating_ips: number;
+  last_sync?: string;
+  sync_status: string;
+  partial: boolean;
 }
 
 // Filter types
