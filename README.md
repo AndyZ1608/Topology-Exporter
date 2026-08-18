@@ -76,7 +76,8 @@ cd openstack-topology-explorer
 cp .env.example .env
 
 # Start in demo mode (no OpenStack required)
-DEMO_MODE=true docker-compose up -d
+# Docker Compose v2 is required (the command has a space, not a hyphen).
+DEMO_MODE=true docker compose up -d
 
 # Access the application
 open http://localhost:5173
@@ -239,7 +240,7 @@ GET /api/v1/health
 Enable demo mode to test without an OpenStack cloud:
 
 ```bash
-DEMO_MODE=true docker-compose up
+DEMO_MODE=true docker compose up
 ```
 
 Demo topology includes:
@@ -283,6 +284,31 @@ Demo topology includes:
 
 ### Common Issues
 
+**0. `KeyError: 'ContainerConfig'` while recreating a container**
+
+This error comes from the obsolete Python-based Docker Compose v1
+(`docker-compose` 1.29.2), not from the backend or frontend build. Install the
+Compose v2 plugin and recreate the containers without deleting volumes:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-compose-plugin
+sudo docker compose version
+sudo docker compose down --remove-orphans
+sudo docker compose up -d --build
+```
+
+If the host distribution does not provide the v2 plugin yet, remove only this
+project's stale containers before retrying with Compose v1:
+
+```bash
+sudo docker-compose down --remove-orphans
+sudo docker rm -f topology-backend topology-frontend 2>/dev/null || true
+sudo docker-compose up -d --build
+```
+
+Do not add `-v` to `down`; that option also removes named volumes.
+
 **1. "No topology available" error**
 
 ```bash
@@ -322,12 +348,12 @@ openstack role assignment list --user topology-reader
 
 Backend logs:
 ```bash
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 Frontend logs:
 ```bash
-docker-compose logs -f frontend
+docker compose logs -f frontend
 ```
 
 ## Development
