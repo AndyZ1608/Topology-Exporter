@@ -106,8 +106,8 @@ class TestRelationshipEngine:
         )
 
         assert edge.id == "edge-inferred-vm-1-fw-1"
-        assert edge.source == "server:vm-1"
-        assert edge.target == "network:net-1"
+        assert edge.source == "network:net-1"
+        assert edge.target == "server:fw-1"
         assert edge.relationship == "egress_via"
         assert edge.inferred is True
         assert edge.confidence == 0.8
@@ -120,7 +120,7 @@ class TestRelationshipEngine:
         )
 
         assert edge.id == "edge-ha-PAN-HA-PAN01"
-        assert edge.source == "firewall:PAN01"
+        assert edge.source == "server:PAN01"
         assert edge.target == "ha-group:PAN-HA"
         assert edge.relationship == "ha_member"
 

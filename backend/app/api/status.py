@@ -2,10 +2,12 @@
 Sync status API endpoints.
 """
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 
+from app.config import settings
 from app.services.sync_service import get_sync_service
 
-router = APIRouter(prefix="/api/v1", tags=["sync"])
+router = APIRouter(tags=["sync"])
 
 
 @router.get("/health")
@@ -15,9 +17,14 @@ async def health_check():
 
     Returns basic application health status.
     """
+    sync_status = get_sync_service().sync_status
     return {
         "status": "healthy",
-        "service": "OpenStack Topology Explorer",
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "demo_mode": settings.DEMO_MODE,
+        "sync_status": sync_status.status,
+        "last_sync": sync_status.last_sync.isoformat() if sync_status.last_sync else None,
     }
 
 
@@ -48,5 +55,5 @@ async def trigger_sync():
     This will start a new synchronization with OpenStack.
     """
     sync_service = get_sync_service()
-    status = sync_service.sync(force=True)
+    status = await run_in_threadpool(sync_service.sync, True)
     return status.model_dump()

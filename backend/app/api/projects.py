@@ -2,11 +2,11 @@
 Projects API endpoints.
 """
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from fastapi.concurrency import run_in_threadpool
 
 from app.services.sync_service import get_sync_service
 
-router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
+router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 @router.get("")
@@ -20,7 +20,7 @@ async def list_projects():
 
     if not sync_service.current_topology:
         # Trigger a sync first
-        await sync_service.sync()
+        await run_in_threadpool(sync_service.sync)
 
     if not sync_service.current_topology:
         return {"projects": []}

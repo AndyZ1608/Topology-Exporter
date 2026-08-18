@@ -2,11 +2,12 @@
 Topology API endpoints.
 """
 from fastapi import APIRouter, Query
+from fastapi.concurrency import run_in_threadpool
 from typing import Optional
 
 from app.services.sync_service import get_sync_service
 
-router = APIRouter(prefix="/api/v1/topology", tags=["topology"])
+router = APIRouter(prefix="/topology", tags=["topology"])
 
 
 @router.get("")
@@ -70,7 +71,7 @@ async def refresh_topology():
     Trigger an immediate topology refresh.
     """
     sync_service = get_sync_service()
-    status = sync_service.sync(force=True)
+    status = await run_in_threadpool(sync_service.sync, True)
     return status.model_dump()
 
 

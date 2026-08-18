@@ -26,19 +26,18 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
 
-    # Start background sync
+    # Complete one initial snapshot before scheduling periodic refreshes. Starting
+    # the thread first caused two syncs to race during every application startup.
     sync_service = get_sync_service()
-    sync_service.start_background_sync()
-
-    # Initial sync
     logger.info("Performing initial topology sync...")
     sync_service.sync()
+    sync_service.start_background_sync()
 
-    yield
-
-    # Shutdown
-    logger.info("Shutting down...")
-    sync_service.stop_background_sync()
+    try:
+        yield
+    finally:
+        logger.info("Shutting down...")
+        sync_service.stop_background_sync()
 
 
 # Create FastAPI app
@@ -72,22 +71,6 @@ async def root():
         "version": settings.APP_VERSION,
         "docs": "/docs",
         "health": "/api/v1/health",
-    }
-
-
-@app.get("/api/v1/health")
-async def health():
-    """Health check endpoint."""
-    sync_service = get_sync_service()
-    status = sync_service.sync_status
-
-    return {
-        "status": "healthy",
-        "service": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "sync_status": status.status,
-        "last_sync": status.last_sync.isoformat() if status.last_sync else None,
-        "demo_mode": settings.DEMO_MODE,
     }
 
 

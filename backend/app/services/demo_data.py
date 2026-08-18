@@ -635,44 +635,6 @@ class DemoDataGenerator:
             security_groups=security_groups,
         )
 
-        # Override to add Internet relationship via router path
-        from app.schemas.topology import TopologyEdge
-        from app.topology.normalizer import TopologyNormalizer
-
-        # Add Internet node
-        normalizer = TopologyNormalizer()
-        internet_node = normalizer.create_internet_node()
-
-        # Find external network node
-        wan_node = None
-        for node in topology.nodes:
-            if node.resource_id == self.WAN_NETWORK_ID:
-                wan_node = node
-                break
-
-        if wan_node:
-            # Add router to external network edge
-            router_edge = TopologyEdge(
-                id="edge-router-wan",
-                source="router:noc-router",
-                target=f"network:{self.WAN_NETWORK_ID}",
-                relationship="external_gateway",
-                inferred=False,
-                confidence=1.0,
-            )
-            topology.edges.append(router_edge)
-
-            # Add external network to Internet edge
-            internet_edge = TopologyEdge(
-                id="edge-wan-internet",
-                source=f"network:{self.WAN_NETWORK_ID}",
-                target="internet",
-                relationship="internet_uplink",
-                inferred=True,
-                confidence=0.95,
-            )
-            topology.edges.append(internet_edge)
-
         # Update metadata
         topology.metadata["demo_mode"] = True
         topology.metadata["demo_scenario"] = "NOC with Palo Alto HA"

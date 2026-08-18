@@ -181,15 +181,9 @@ class GraphBuilder:
                         port["network_id"],
                     )
 
-                    # Add floating IP relationships
-                    for fip in floating_ips.values():
-                        if fip.get("port_id") == port["id"]:
-                            self.relationship_engine.add_floating_ip_relationship(
-                                server["id"],
-                                fip["floating_ip_address"],
-                                fip.get("fixed_ip_address"),
-                                port["id"],
-                            )
+                    # Floating IPs are exposed on the server's properties. They
+                    # are not graph nodes by default, so do not create dangling
+                    # edges to non-existent floating-IP nodes.
 
         # 4. Handle HA groups
         ha_groups = self.classifier.get_ha_groups(list(servers.values()), ports)
@@ -321,16 +315,17 @@ class GraphBuilder:
         }
 
         # Find networks connected to firewalls
-        firewall_networks: dict[str, str] = {}  # network_id -> firewall_server_id
+        firewall_networks: dict[str, str] = {}  # internal network -> firewall server
 
         for server_id, classification in firewalls.items():
             for port_id, iface_info in classification.get("interfaces", {}).items():
-                if iface_info.get("role") in ["WAN", "TRUNK"]:
+                if iface_info.get("role") in ["LAN", "TRUNK"]:
                     network_id = iface_info.get("network_id")
                     if network_id:
                         firewall_networks[network_id] = server_id
 
         # For each VM, check if there's an inferred path through a firewall
+        created_relationships: set[tuple[str, str]] = set()
         for server_id, server in servers.items():
             if server_id in firewalls:
                 continue  # Skip firewalls
@@ -346,6 +341,9 @@ class GraphBuilder:
                     network_id = port.get("network_id")
                     if network_id in firewall_networks:
                         firewall_id = firewall_networks[network_id]
+                        relationship_key = (network_id, firewall_id)
+                        if relationship_key in created_relationships:
+                            continue
 
                         # Check if firewall has a path to external/Internet
                         firewall_classification = firewalls.get(firewall_id, {})
@@ -357,6 +355,7 @@ class GraphBuilder:
                                 network_id,
                                 confidence=0.75,
                             )
+                            created_relationships.add(relationship_key)
 
     def find_internet_path(self, server_id: str) -> dict:
         """Find the Internet path for a server."""

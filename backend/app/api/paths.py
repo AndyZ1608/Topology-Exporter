@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.services.sync_service import get_sync_service
 
-router = APIRouter(prefix="/api/v1/path", tags=["paths"])
+router = APIRouter(prefix="/path", tags=["paths"])
 
 
 @router.get("/{server_id}/internet")

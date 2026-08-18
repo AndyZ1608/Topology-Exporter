@@ -1,112 +1,115 @@
-"""
-Application configuration using Pydantic Settings.
-"""
+"""Validated application configuration loaded from environment variables."""
+
 import json
-import os
 from pathlib import Path
-from typing import Optional, List
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from typing import Annotated, Any
+
+from pydantic import BeforeValidator, SecretStr
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
+
+
+def parse_cors_origins(value: Any) -> list[str]:
+    """Accept either a JSON array or a comma-separated list of origins."""
+    if isinstance(value, str):
+        raw_value = value.strip()
+        if not raw_value:
+            return DEFAULT_CORS_ORIGINS.copy()
+
+        if raw_value.startswith("["):
+            try:
+                value = json.loads(raw_value)
+            except json.JSONDecodeError as exc:
+                raise ValueError("CORS_ORIGINS must be valid JSON or comma-separated") from exc
+        else:
+            value = raw_value.split(",")
+
+    if not isinstance(value, (list, tuple, set)):
+        raise ValueError("CORS_ORIGINS must contain a list of origins")
+
+    origins = [str(origin).strip() for origin in value if str(origin).strip()]
+    if not origins:
+        raise ValueError("CORS_ORIGINS must contain at least one origin")
+    return origins
+
+
+CorsOrigins = Annotated[
+    list[str],
+    NoDecode,
+    BeforeValidator(parse_cors_origins),
+]
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    """Application settings with a single, testable source of validation."""
 
-    # Application
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        env_ignore_empty=True,
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
+
     APP_NAME: str = "OpenStack Topology Explorer"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    # OpenStack
-    OS_CLOUD: str = os.getenv("OS_CLOUD", "openstack")
-    CLOUDS_YAML_PATH: Optional[str] = os.getenv("CLOUDS_YAML_PATH")
-    OS_AUTH_URL: Optional[str] = os.getenv("OS_AUTH_URL")
-    OS_USERNAME: Optional[str] = os.getenv("OS_USERNAME")
-    OS_PASSWORD: Optional[str] = os.getenv("OS_PASSWORD")
-    OS_PROJECT_NAME: Optional[str] = os.getenv("OS_PROJECT_NAME")
-    OS_USER_DOMAIN_NAME: str = os.getenv("OS_USER_DOMAIN_NAME", "Default")
-    OS_PROJECT_DOMAIN_NAME: str = os.getenv("OS_PROJECT_DOMAIN_NAME", "Default")
-    OS_REGION_NAME: str = os.getenv("OS_REGION_NAME", "RegionOne")
+    OS_CLOUD: str = "openstack"
+    CLOUDS_YAML_PATH: str | None = None
+    OS_AUTH_URL: str | None = None
+    OS_USERNAME: str | None = None
+    OS_PASSWORD: SecretStr | None = None
+    OS_PROJECT_NAME: str | None = None
+    OS_USER_DOMAIN_NAME: str = "Default"
+    OS_PROJECT_DOMAIN_NAME: str = "Default"
+    OS_REGION_NAME: str = "RegionOne"
 
-    # TLS
-    TLS_VERIFY: bool = os.getenv("TLS_VERIFY", "true").lower() != "false"
+    TLS_VERIFY: bool = True
+    DATABASE_URL: str = "sqlite:///./topology.db"
 
-    # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./topology.db")
+    TOPOLOGY_SYNC_INTERVAL: int = 60
+    DEMO_MODE: bool = False
+    CLASSIFICATION_CONFIG_PATH: str | None = None
+    VM_AGGREGATION_THRESHOLD: int = 10
 
-    # Sync
-    TOPOLOGY_SYNC_INTERVAL: int = int(os.getenv("TOPOLOGY_SYNC_INTERVAL", "60"))
-
-    # Demo mode
-    DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() == "true"
-
-    # Classification config
-    CLASSIFICATION_CONFIG_PATH: Optional[str] = os.getenv("CLASSIFICATION_CONFIG_PATH")
-
-    # Aggregation
-    VM_AGGREGATION_THRESHOLD: int = int(os.getenv("VM_AGGREGATION_THRESHOLD", "10"))
-
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
-
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v):
-        """Parse CORS_ORIGINS from JSON string or use default."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str) and v:
-            try:
-                return json.loads(v)
-            except json.JSONDecodeError:
-                # Try splitting by comma for simple cases
-                return [origin.strip() for origin in v.split(",") if origin.strip()]
-        # Return default if empty or invalid
-        return ["http://localhost:5173", "http://localhost:3000"]
-
-    # Rate limiting
+    CORS_ORIGINS: CorsOrigins = DEFAULT_CORS_ORIGINS.copy()
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 100
-
-    # Timeouts
     OPENSTACK_TIMEOUT: int = 30
     REQUEST_TIMEOUT: int = 60
 
     @property
-    def clouds_yaml(self) -> Optional[Path]:
-        """Get clouds.yaml path."""
+    def clouds_yaml(self) -> Path | None:
+        """Return an explicitly configured or conventional clouds.yaml path."""
         if self.CLOUDS_YAML_PATH:
             return Path(self.CLOUDS_YAML_PATH)
-        # Check default locations
-        default_locations = [
+
+        for location in (
             Path.home() / ".config" / "openstack" / "clouds.yaml",
             Path.home() / ".openstack" / "clouds.yaml",
             Path.cwd() / "clouds.yaml",
-        ]
-        for loc in default_locations:
-            if loc.exists():
-                return loc
+        ):
+            if location.exists():
+                return location
         return None
 
     @property
-    def classification_config_path(self) -> Optional[Path]:
-        """Get classification config path."""
+    def classification_config_path(self) -> Path | None:
+        """Return an explicitly configured or conventional classification file."""
         if self.CLASSIFICATION_CONFIG_PATH:
             return Path(self.CLASSIFICATION_CONFIG_PATH)
-        # Check default locations
-        default_locations = [
+
+        for location in (
             Path.cwd() / "config" / "classification.yaml",
             Path(__file__).parent.parent.parent / "config" / "classification.yaml",
-        ]
-        for loc in default_locations:
-            if loc.exists():
-                return loc
+        ):
+            if location.exists():
+                return location
         return None
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
 
 
 settings = Settings()

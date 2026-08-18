@@ -1,9 +1,9 @@
 """
 Normalized topology schemas for API responses.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NodeProperties(BaseModel):
@@ -18,7 +18,7 @@ class NodeProperties(BaseModel):
     is_external: bool = False
     is_shared: bool = False
     ha_members: list[str] = Field(default_factory=list)
-    interfaces: dict[str, str] = Field(default_factory=dict)
+    interfaces: dict[str, dict] = Field(default_factory=dict)
     vm_count: int = 0
     flavor: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
@@ -29,6 +29,27 @@ class NodeProperties(BaseModel):
 
 class TopologyNode(BaseModel):
     """Normalized topology node."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "server:550e8400-e29b-41d4-a716-446655440000",
+                "resource_id": "550e8400-e29b-41d4-a716-446655440000",
+                "resource_type": "server",
+                "role": "vm",
+                "name": "monitor01",
+                "project_id": "123e4567-e89b-12d3-a456-426614174000",
+                "project_name": "NOC",
+                "status": "ACTIVE",
+                "layer": "workload",
+                "properties": {
+                    "ips": ["10.0.30.15"],
+                    "mac_addresses": ["fa:16:3e:1a:b2:c3"],
+                    "flavor": "m1.medium",
+                },
+            }
+        }
+    )
+
     id: str = Field(..., description="Unique identifier: {resource_type}:{resource_id}")
     resource_id: str = Field(..., description="OpenStack resource UUID")
     resource_type: str = Field(..., description="server, network, subnet, router, etc.")
@@ -44,27 +65,6 @@ class TopologyNode(BaseModel):
     aggregated_count: int = 0
     parent_id: Optional[str] = None
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "server:550e8400-e29b-41d4-a716-446655440000",
-                "resource_id": "550e8400-e29b-41d4-a716-446655440000",
-                "resource_type": "server",
-                "role": "vm",
-                "name": "monitor01",
-                "project_id": "123e4567-e89b-12d3-a456-426614174000",
-                "project_name": "NOC",
-                "status": "ACTIVE",
-                "layer": "workload",
-                "properties": {
-                    "ips": ["10.0.30.15"],
-                    "mac_addresses": ["fa:16:3e:1a:b2:c3"],
-                    "flavor": "m1.medium"
-                }
-            }
-        }
-
-
 class EdgeProperties(BaseModel):
     """Additional properties for an edge."""
     vlan_id: Optional[int] = None
@@ -78,6 +78,19 @@ class EdgeProperties(BaseModel):
 
 class TopologyEdge(BaseModel):
     """Normalized topology edge."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "edge-550e8400-e29b-41d4-a716-446655440001",
+                "source": "server:550e8400-e29b-41d4-a716-446655440000",
+                "target": "network:660e8400-e29b-41d4-a716-446655440000",
+                "relationship": "attached_to",
+                "inferred": False,
+                "confidence": 1.0,
+            }
+        }
+    )
+
     id: str
     source: str = Field(..., description="Source node ID")
     target: str = Field(..., description="Target node ID")
@@ -86,25 +99,12 @@ class TopologyEdge(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     properties: EdgeProperties = Field(default_factory=EdgeProperties)
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "edge-550e8400-e29b-41d4-a716-446655440001",
-                "source": "server:550e8400-e29b-41d4-a716-446655440000",
-                "target": "network:660e8400-e29b-41d4-a716-446655440000",
-                "relationship": "attached_to",
-                "inferred": False,
-                "confidence": 1.0
-            }
-        }
-
-
 class TopologyResponse(BaseModel):
     """Full topology response."""
     nodes: list[TopologyNode]
     edges: list[TopologyEdge]
     metadata: dict = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class InternetPathResponse(BaseModel):

@@ -2,11 +2,9 @@
 Nodes API endpoints.
 """
 from fastapi import APIRouter, HTTPException
-from typing import Optional
-
 from app.services.sync_service import get_sync_service
 
-router = APIRouter(prefix="/api/v1/nodes", tags=["nodes"])
+router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
 @router.get("/{node_id}")

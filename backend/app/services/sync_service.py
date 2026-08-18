@@ -4,12 +4,13 @@ Topology sync service - handles background synchronization with OpenStack.
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.config import settings
 from app.openstack import IdentityCollector, ComputeCollector, NetworkCollector
 from app.topology.graph_builder import GraphBuilder
+from app.topology.path_engine import PathEngine
 from app.schemas.topology import TopologyResponse, SyncStatusResponse
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class TopologySyncService:
         self._sync_status: SyncStatusResponse = SyncStatusResponse(status="idle")
         self._sync_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._sync_lock = threading.Lock()
         self._sync_interval = settings.TOPOLOGY_SYNC_INTERVAL
 
         # Collectors
@@ -38,6 +40,7 @@ class TopologySyncService:
         self._compute_collector = ComputeCollector()
         self._network_collector = NetworkCollector()
         self._graph_builder = GraphBuilder()
+        self._path_engine = PathEngine()
 
     @property
     def current_topology(self) -> Optional[TopologyResponse]:
@@ -74,14 +77,13 @@ class TopologySyncService:
 
     def _background_sync_loop(self):
         """Background sync loop."""
-        while not self._stop_event.is_set():
+        # The application lifespan performs the initial sync. Waiting first keeps
+        # startup deterministic and prevents two collectors mutating one graph.
+        while not self._stop_event.wait(timeout=self._sync_interval):
             try:
                 self.sync()
             except Exception as e:
                 logger.error(f"Background sync error: {e}")
-
-            # Wait for interval or stop event
-            self._stop_event.wait(timeout=self._sync_interval)
 
     def sync(self, force: bool = False) -> SyncStatusResponse:
         """
@@ -93,7 +95,8 @@ class TopologySyncService:
         Returns:
             Sync status
         """
-        if self._sync_status.status == "syncing" and not force:
+        acquired = self._sync_lock.acquire(blocking=force)
+        if not acquired:
             logger.warning("Sync already in progress")
             return self._sync_status
 
@@ -102,6 +105,7 @@ class TopologySyncService:
         self._sync_status.failed_collectors = []
 
         try:
+            failed_collectors: list[str] = []
             if settings.DEMO_MODE:
                 # Demo mode - use mock data
                 from app.services.demo_data import get_demo_topology
@@ -109,21 +113,41 @@ class TopologySyncService:
                 logger.info("Demo topology loaded")
             else:
                 # Real OpenStack sync
-                self._sync_from_openstack()
+                candidate_topology, failed_collectors = self._sync_from_openstack()
+                # Preserve the last complete snapshot when a later collection is
+                # partial. On first boot, a partial graph is still more useful
+                # than no topology at all.
+                if not failed_collectors or self._current_topology is None:
+                    self._current_topology = candidate_topology
 
-            # Success
+            if self._current_topology:
+                self._path_engine.set_topology(
+                    self._current_topology.nodes,
+                    self._current_topology.edges,
+                )
+
             duration = time.time() - start_time
+            partial = bool(failed_collectors)
             self._sync_status = SyncStatusResponse(
-                status="success",
-                last_sync=datetime.utcnow(),
+                status="partial" if partial else "success",
+                last_sync=datetime.now(timezone.utc),
                 last_duration=duration,
-                last_error=None,
-                partial=False,
-                failed_collectors=[],
+                last_error=(
+                    f"Collectors failed: {', '.join(failed_collectors)}"
+                    if partial
+                    else None
+                ),
+                partial=partial,
+                failed_collectors=failed_collectors,
                 node_count=len(self._current_topology.nodes) if self._current_topology else 0,
                 edge_count=len(self._current_topology.edges) if self._current_topology else 0,
             )
-            logger.info(f"Sync completed: {self._sync_status.node_count} nodes, {self._sync_status.edge_count} edges")
+            logger.info(
+                "Sync completed: %s nodes, %s edges%s",
+                self._sync_status.node_count,
+                self._sync_status.edge_count,
+                f" (partial: {', '.join(failed_collectors)})" if partial else "",
+            )
 
         except Exception as e:
             duration = time.time() - start_time
@@ -131,7 +155,7 @@ class TopologySyncService:
             if self._current_topology:
                 self._sync_status = SyncStatusResponse(
                     status="partial",
-                    last_sync=datetime.utcnow(),
+                    last_sync=datetime.now(timezone.utc),
                     last_duration=duration,
                     last_error=str(e),
                     partial=True,
@@ -142,7 +166,7 @@ class TopologySyncService:
             else:
                 self._sync_status = SyncStatusResponse(
                     status="failed",
-                    last_sync=datetime.utcnow(),
+                    last_sync=datetime.now(timezone.utc),
                     last_duration=duration,
                     last_error=str(e),
                     partial=False,
@@ -152,9 +176,12 @@ class TopologySyncService:
                 )
             logger.error(f"Sync failed: {e}")
 
+        finally:
+            self._sync_lock.release()
+
         return self._sync_status
 
-    def _sync_from_openstack(self):
+    def _sync_from_openstack(self) -> tuple[TopologyResponse, list[str]]:
         """Sync topology from OpenStack APIs."""
         from app.openstack.connection import connection_manager
 
@@ -168,8 +195,6 @@ class TopologySyncService:
         self._network_collector = NetworkCollector(conn)
 
         failed_collectors = []
-        partial = False
-
         # Collect resources with error handling
         try:
             projects = self._identity_collector.collect_projects()
@@ -177,7 +202,6 @@ class TopologySyncService:
             logger.error(f"Failed to collect projects: {e}")
             failed_collectors.append("keystone")
             projects = {}
-            partial = True
 
         try:
             servers = self._compute_collector.collect_servers()
@@ -185,7 +209,6 @@ class TopologySyncService:
             logger.error(f"Failed to collect servers: {e}")
             failed_collectors.append("nova")
             servers = {}
-            partial = True
 
         try:
             network_data = self._network_collector.collect_all()
@@ -202,13 +225,9 @@ class TopologySyncService:
                 "trunks": {},
                 "security_groups": {},
             }
-            partial = True
-
-        self._sync_status.failed_collectors = failed_collectors
-        self._sync_status.partial = partial
 
         # Build topology
-        self._current_topology = self._graph_builder.build_from_openstack(
+        topology = self._graph_builder.build_from_openstack(
             projects=projects,
             servers=servers,
             networks=network_data.get("networks", {}),
@@ -219,6 +238,7 @@ class TopologySyncService:
             trunks=network_data.get("trunks", {}),
             security_groups=network_data.get("security_groups", {}),
         )
+        return topology, failed_collectors
 
     def find_internet_path(self, server_id: str) -> dict:
         """Find internet path for a server."""
@@ -232,7 +252,7 @@ class TopologySyncService:
                 "path_nodes": [],
             }
 
-        return self._graph_builder.find_internet_path(server_id)
+        return self._path_engine.find_internet_path(server_id).model_dump()
 
     def get_node(self, node_id: str) -> Optional[dict]:
         """Get a node by ID."""

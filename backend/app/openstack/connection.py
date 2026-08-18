@@ -48,7 +48,11 @@ class OpenStackConnectionManager:
                 appCredentialId=None,
                 appCredentialName=None,
                 username=settings.OS_USERNAME,
-                password=settings.OS_PASSWORD,
+                password=(
+                    settings.OS_PASSWORD.get_secret_value()
+                    if settings.OS_PASSWORD
+                    else None
+                ),
                 project_name=settings.OS_PROJECT_NAME,
                 user_domain_name=settings.OS_USER_DOMAIN_NAME,
                 project_domain_name=settings.OS_PROJECT_DOMAIN_NAME,

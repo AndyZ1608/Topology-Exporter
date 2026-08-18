@@ -132,12 +132,13 @@ class RelationshipEngine:
     ) -> TopologyEdge:
         """Add a server-to-floating-IP relationship."""
         # Create a floating IP node if it doesn't exist
-        edge_id = f"edge-fip-{server_id}-{floating_ip.replace('.', '-')}"
+        floating_ip_id = floating_ip.replace(".", "-").replace(":", "-")
+        edge_id = f"edge-fip-{server_id}-{floating_ip_id}"
 
         edge = TopologyEdge(
             id=edge_id,
             source=f"server:{server_id}",
-            target=f"floatingip:{floating_ip}",
+            target=f"floatingip:{floating_ip_id}",
             relationship="floating_ip",
             inferred=False,
             confidence=1.0,
@@ -161,7 +162,7 @@ class RelationshipEngine:
 
         edge = TopologyEdge(
             id=edge_id,
-            source=f"firewall:{firewall_server_id}",
+            source=f"server:{firewall_server_id}",
             target=f"trunk:{trunk_id}",
             relationship="trunk_parent",
             inferred=False,
@@ -203,13 +204,13 @@ class RelationshipEngine:
         network_id: str,
         confidence: float = 0.8,
     ) -> TopologyEdge:
-        """Add an inferred VM-to-firewall-to-network relationship."""
+        """Add an inferred shared-network-to-firewall egress relationship."""
         edge_id = f"edge-inferred-{vm_server_id}-{firewall_server_id}"
 
         edge = TopologyEdge(
             id=edge_id,
-            source=f"server:{vm_server_id}",
-            target=f"network:{network_id}",
+            source=f"network:{network_id}",
+            target=f"server:{firewall_server_id}",
             relationship="egress_via",
             inferred=True,
             confidence=confidence,
@@ -228,7 +229,7 @@ class RelationshipEngine:
 
         edge = TopologyEdge(
             id=edge_id,
-            source=f"firewall:{member_id}",
+            source=f"server:{member_id}",
             target=f"ha-group:{ha_group_id}",
             relationship="ha_member",
             inferred=False,

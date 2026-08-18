@@ -1,254 +1,154 @@
-"""
-Internet path engine - finds the logical path from a VM to the Internet.
-"""
-import logging
-from typing import Optional
+"""Logical Internet path discovery over normalized, directed topology edges."""
 
-from app.schemas.topology import TopologyNode, InternetPathResponse
+from collections import deque
 
-logger = logging.getLogger(__name__)
+from app.schemas.topology import InternetPathResponse, TopologyEdge, TopologyNode
 
 
 class PathEngine:
-    """
-    Finds the logical path from a VM to the Internet.
-
-    This is an inference engine - it analyzes the topology to determine
-    the likely traffic path, but does not verify packet-level routing.
-    """
+    """Find a declared or inferred directed path from a VM to Internet."""
 
     def __init__(self):
         self._nodes: dict[str, TopologyNode] = {}
-        self._edges: list = []
-        self._node_by_resource: dict[str, str] = {}
+        self._edges: list[TopologyEdge] = []
 
-    def set_topology(self, nodes: list[TopologyNode], edges: list):
-        """Set the current topology."""
-        self._nodes = {n.id: n for n in nodes}
-        self._edges = edges
-
-        # Build resource_id to node_id mapping
-        self._node_by_resource = {}
-        for node in nodes:
-            if node.resource_type != "internet":
-                self._node_by_resource[f"{node.resource_type}:{node.resource_id}"] = node.id
-
-    def find_internet_path(
+    def set_topology(
         self,
-        server_id: str,
-    ) -> InternetPathResponse:
-        """
-        Find the logical path from a server to the Internet.
+        nodes: list[TopologyNode],
+        edges: list[TopologyEdge],
+    ) -> None:
+        """Replace the immutable snapshot searched by this engine."""
+        self._nodes = {node.id: node for node in nodes}
+        self._edges = list(edges)
 
-        Algorithm:
-        1. Start at the server node
-        2. Follow network connections upstream
-        3. Look for router/firewall/external network chain
-        4. Determine if this leads to Internet
-
-        Returns:
-            InternetPathResponse with path information
-        """
-        server_node_id = f"server:{server_id}"
-
-        if server_node_id not in self._nodes:
-            return InternetPathResponse(
-                source=server_node_id,
-                destination="internet",
-                found=False,
-                reason=f"Server {server_id} not found in topology",
-                confidence=0.0,
-                path=[],
-                inferred=False,
-                path_nodes=[],
+    def find_internet_path(self, server_id: str) -> InternetPathResponse:
+        """Find a path using only relationships present in the topology graph."""
+        source = f"server:{server_id}"
+        if source not in self._nodes:
+            return self._not_found(
+                source,
+                f"Server {server_id} not found in topology",
+                [],
             )
 
-        path = [server_node_id]
-        current_node_id = server_node_id
-        visited = {server_node_id}
-        confidence = 1.0
-        inferred_count = 0
-
-        # Build adjacency maps
-        downstream: dict[str, list[str]] = {}
-        upstream: dict[str, list[str]] = {}
-
+        adjacency: dict[str, list[tuple[str, TopologyEdge]]] = {}
         for edge in self._edges:
-            if edge.source not in downstream:
-                downstream[edge.source] = []
-            downstream[edge.source].append(edge.target)
+            # Ignore dangling targets. Internet is the one supported synthetic ID.
+            if edge.target != "internet" and edge.target not in self._nodes:
+                continue
+            adjacency.setdefault(edge.source, []).append((edge.target, edge))
 
-            if edge.target not in upstream:
-                upstream[edge.target] = []
-            upstream[edge.target].append(edge.source)
+        queue = deque([(source, [source], 1.0, False)])
+        visited = {source}
+        deepest_path = [source]
+        max_hops = 20
 
-        # Traverse upstream (from VM toward gateway)
-        max_hops = 20  # Prevent infinite loops
-        hops = 0
+        while queue:
+            current, path, confidence, inferred = queue.popleft()
+            if len(path) - 1 >= max_hops:
+                continue
 
-        while hops < max_hops:
-            hops += 1
+            candidates = adjacency.get(current, [])
+            candidates = sorted(candidates, key=lambda item: self._priority(item[0]))
 
-            # Get upstream nodes
-            up_nodes = upstream.get(current_node_id, [])
-
-            if not up_nodes:
-                # End of path - couldn't reach Internet
-                return InternetPathResponse(
-                    source=server_node_id,
-                    destination="internet",
-                    found=False,
-                    reason="No gateway found - this network may not have external connectivity",
-                    confidence=confidence,
-                    path=path,
-                    inferred=inferred_count > 0,
-                    path_nodes=self._get_path_nodes(path),
-                )
-
-            # Find the best next node
-            # Priority: router > firewall > external network > other
-            next_node = None
-            next_node_type_priority = 999
-
-            for candidate in up_nodes:
-                if candidate in visited:
+            for target, edge in candidates:
+                if target in visited:
                     continue
 
-                node = self._nodes.get(candidate)
-                if not node:
-                    continue
+                next_path = [*path, target]
+                next_inferred = inferred or edge.inferred
+                next_confidence = confidence * edge.confidence if edge.inferred else confidence
 
-                # Determine priority
-                priority = 999
-                if node.role == "router":
-                    priority = 1
-                elif node.role == "firewall":
-                    priority = 2
-                elif node.layer == "external":
-                    priority = 3
-                elif node.resource_type == "network":
-                    priority = 4
-                elif node.role == "network":
-                    priority = 4
+                if len(next_path) > len(deepest_path):
+                    deepest_path = next_path
 
-                if priority < next_node_type_priority:
-                    next_node = candidate
-                    next_node_type_priority = priority
-
-            if not next_node:
-                # Dead end
-                return InternetPathResponse(
-                    source=server_node_id,
-                    destination="internet",
-                    found=False,
-                    reason="No viable path to external network",
-                    confidence=confidence,
-                    path=path,
-                    inferred=inferred_count > 0,
-                    path_nodes=self._get_path_nodes(path),
-                )
-
-            # Move to next node
-            path.append(next_node)
-            visited.add(next_node)
-            current_node_id = next_node
-
-            # Check if we reached Internet
-            if next_node == "internet":
-                return InternetPathResponse(
-                    source=server_node_id,
-                    destination="internet",
-                    found=True,
-                    confidence=confidence,
-                    path=path,
-                    inferred=inferred_count > 0,
-                    path_nodes=self._get_path_nodes(path),
-                )
-
-            # Check if we reached an external network
-            node = self._nodes.get(next_node)
-            if node and node.layer == "external":
-                # Check if this external network connects to Internet
-                if self._connects_to_internet(next_node):
-                    path.append("internet")
+                if target == "internet":
                     return InternetPathResponse(
-                        source=server_node_id,
+                        source=source,
                         destination="internet",
                         found=True,
-                        confidence=confidence,
-                        path=path,
-                        inferred=True,
-                        path_nodes=self._get_path_nodes(path),
+                        confidence=next_confidence,
+                        path=next_path,
+                        inferred=next_inferred,
+                        path_nodes=self._get_path_nodes(next_path),
                     )
 
-            # Track inferred edges
-            edge = self._find_edge(current_node_id, next_node)
-            if edge and edge.inferred:
-                inferred_count += 1
-                confidence *= edge.confidence
+                visited.add(target)
+                queue.append((target, next_path, next_confidence, next_inferred))
 
-        # Max hops exceeded
+        return self._not_found(
+            source,
+            "No known egress gateway for this network",
+            deepest_path,
+        )
+
+    def _priority(self, node_id: str) -> int:
+        """Prefer gateway/external branches while retaining complete BFS coverage."""
+        if node_id == "internet":
+            return 0
+        node = self._nodes.get(node_id)
+        if not node:
+            return 99
+        if node.role == "firewall" or node.resource_type == "ha_group":
+            return 1
+        if node.role == "router":
+            return 2
+        if node.layer == "external":
+            return 3
+        if node.resource_type == "network":
+            return 4
+        return 10
+
+    def _not_found(
+        self,
+        source: str,
+        reason: str,
+        path: list[str],
+    ) -> InternetPathResponse:
         return InternetPathResponse(
-            source=server_node_id,
+            source=source,
             destination="internet",
             found=False,
-            reason="Maximum path length exceeded",
-            confidence=confidence,
+            reason=reason,
+            confidence=self.get_path_confidence(path) if path else 0.0,
             path=path,
-            inferred=True,
+            inferred=self._path_is_inferred(path),
             path_nodes=self._get_path_nodes(path),
         )
 
-    def _connects_to_internet(self, network_id: str) -> bool:
-        """Check if a network connects directly to Internet."""
-        for edge in self._edges:
-            if edge.source == network_id and edge.target == "internet":
-                return True
-            if edge.target == network_id and edge.relationship == "internet_uplink":
-                return True
-        return False
+    def _find_edge(self, source: str, target: str) -> TopologyEdge | None:
+        """Find a directed edge; direction represents logical traffic flow."""
+        return next(
+            (
+                edge
+                for edge in self._edges
+                if edge.source == source and edge.target == target
+            ),
+            None,
+        )
 
-    def _find_edge(self, source: str, target: str):
-        """Find edge between two nodes."""
-        for edge in self._edges:
-            if edge.source == source and edge.target == target:
-                return edge
-            if edge.source == target and edge.target == source:
-                return edge
-        return None
+    def _path_is_inferred(self, path: list[str]) -> bool:
+        return any(
+            edge is not None and edge.inferred
+            for edge in (
+                self._find_edge(path[index], path[index + 1])
+                for index in range(len(path) - 1)
+            )
+        )
 
     def _get_path_nodes(self, path: list[str]) -> list[TopologyNode]:
-        """Get node objects for a path."""
-        nodes = []
-        for node_id in path:
-            if node_id == "internet":
-                # Create synthetic Internet node
-                nodes.append(TopologyNode(
-                    id="internet",
-                    resource_id="internet",
-                    resource_type="internet",
-                    role="internet",
-                    name="Internet",
-                    layer="internet",
-                    status="ACTIVE",
-                ))
-            elif node_id in self._nodes:
-                nodes.append(self._nodes[node_id])
-        return nodes
+        return [self._nodes[node_id] for node_id in path if node_id in self._nodes]
 
     def get_path_confidence(self, path: list[str]) -> float:
-        """Calculate confidence score for a path based on inferred edges."""
+        """Multiply confidence only for inferred edges in a known path."""
         if len(path) < 2:
             return 1.0
 
         confidence = 1.0
-        for i in range(len(path) - 1):
-            edge = self._find_edge(path[i], path[i + 1])
-            if edge:
-                if edge.inferred:
-                    confidence *= edge.confidence
-            else:
-                # No edge found - very low confidence
-                confidence *= 0.5
-
+        for index in range(len(path) - 1):
+            edge = self._find_edge(path[index], path[index + 1])
+            if edge is None:
+                return 0.0
+            if edge.inferred:
+                confidence *= edge.confidence
         return confidence

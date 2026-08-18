@@ -36,7 +36,9 @@ class InterfaceClassifier:
 
     def _load_from_config(self, config: dict):
         """Load interface classification rules from config."""
-        interfaces = config.get("interfaces", {})
+        # Accept both the complete classification document and the interface
+        # section itself. This keeps the class convenient to unit-test and reuse.
+        interfaces = config.get("interfaces", config)
         for role, rules in interfaces.items():
             self.rules[role] = rules.get("network_patterns", [])
 
@@ -212,7 +214,7 @@ class DeviceClassifier:
 
         # Try to infer from name
         server_name = server.get("name", "").lower()
-        if "palo" in server_name:
+        if "palo" in server_name or re.search(r"^pan\d+", server_name):
             return "Palo Alto"
         if "forti" in server_name:
             return "Fortinet"
@@ -255,7 +257,15 @@ class ClassificationEngine:
 
     def __init__(self):
         self.device_classifier = DeviceClassifier()
-        self.interface_classifier = InterfaceClassifier()
+        interface_config = None
+        config_path = settings.classification_config_path
+        if config_path and config_path.exists():
+            try:
+                with open(config_path, encoding="utf-8") as config_file:
+                    interface_config = yaml.safe_load(config_file) or {}
+            except (OSError, yaml.YAMLError) as exc:
+                logger.warning("Could not load interface classification config: %s", exc)
+        self.interface_classifier = InterfaceClassifier(interface_config)
 
         # Manual overrides (loaded from DB)
         self._manual_overrides: dict[str, dict] = {}
