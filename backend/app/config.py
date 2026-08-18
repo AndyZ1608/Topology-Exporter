@@ -1,9 +1,11 @@
 """
 Application configuration using Pydantic Settings.
 """
+import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -45,7 +47,22 @@ class Settings(BaseSettings):
     VM_AGGREGATION_THRESHOLD: int = int(os.getenv("VM_AGGREGATION_THRESHOLD", "10"))
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from JSON string or use default."""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str) and v:
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                # Try splitting by comma for simple cases
+                return [origin.strip() for origin in v.split(",") if origin.strip()]
+        # Return default if empty or invalid
+        return ["http://localhost:5173", "http://localhost:3000"]
 
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = True
