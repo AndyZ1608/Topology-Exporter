@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     OS_INTERFACE: str = "internal"
     OS_IDENTITY_API_VERSION: int = 3
     TOPOLOGY_DOMAIN_NAME: str = "MBFS"
+    TOPOLOGY_DOMAIN_ID: str = "eb2be5b37ae84e9ab743f0119f370f02"
 
     TLS_VERIFY: bool = True
     DATABASE_URL: str = "sqlite:///./topology.db"

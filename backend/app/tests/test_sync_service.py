@@ -1,5 +1,7 @@
 """Regression tests for topology synchronization state."""
 
+import logging
+
 from app.services import sync_service as sync_module
 from app.schemas.topology import TopologyResponse
 
@@ -55,16 +57,31 @@ def test_summary_and_search_use_normalized_snapshot(monkeypatch):
     assert any(result["name"] == "VLAN30-Monitor" for result in cidr_results)
 
 
-def test_openstack_sync_uses_system_identity_then_one_scope_per_project(monkeypatch):
+def test_openstack_sync_uses_system_identity_then_one_scope_per_project(
+    monkeypatch, caplog
+):
+    caplog.set_level(logging.INFO, logger=sync_module.__name__)
     from app.openstack.connection import connection_manager
 
     system_connection = object()
     project_connections = []
     captured_graph = {}
 
+    domain_id = "eb2be5b37ae84e9ab743f0119f370f02"
+    admin_id = "3b1cbc5fb9e14c1498b97c0196522949"
     projects = {
-        "project-1": {"id": "project-1", "name": "NOC", "domain_id": "domain-mbfs", "enabled": True},
-        "project-2": {"id": "project-2", "name": "APP", "domain_id": "domain-mbfs", "enabled": True},
+        "project-1": {
+            "id": "project-1", "name": "DBA", "domain_id": domain_id,
+            "enabled": True,
+        },
+        "project-2": {
+            "id": "project-2", "name": "APP", "domain_id": domain_id,
+            "enabled": True,
+        },
+        admin_id: {
+            "id": admin_id, "name": "admin", "domain_id": "default",
+            "enabled": True,
+        },
     }
 
     class FakeIdentityCollector:
@@ -74,10 +91,9 @@ def test_openstack_sync_uses_system_identity_then_one_scope_per_project(monkeypa
 
         def find_domain(self, name):
             assert name == "MBFS"
-            return {"id": "domain-mbfs", "name": "MBFS", "enabled": True}
+            return {"id": domain_id, "name": "MBFS", "enabled": True}
 
-        def collect_projects(self, domain_id):
-            assert domain_id == "domain-mbfs"
+        def collect_projects(self):
             return projects
 
     class FakeComputeCollector:
@@ -113,6 +129,7 @@ def test_openstack_sync_uses_system_identity_then_one_scope_per_project(monkeypa
         return connection
 
     monkeypatch.setattr(sync_module.settings, "TOPOLOGY_DOMAIN_NAME", "MBFS")
+    monkeypatch.setattr(sync_module.settings, "TOPOLOGY_DOMAIN_ID", domain_id)
     monkeypatch.setattr(connection_manager, "get_system_connection", lambda: system_connection)
     monkeypatch.setattr(connection_manager, "get_project_connection", project_connection)
     monkeypatch.setattr(sync_module, "IdentityCollector", FakeIdentityCollector)
@@ -133,3 +150,9 @@ def test_openstack_sync_uses_system_identity_then_one_scope_per_project(monkeypa
         "net-project-1", "net-project-2"
     }
     assert failures == ["neutron.trunks:project-2"]
+    assert {project["id"] for project in service.get_selectable_projects()} == {
+        "project-1", "project-2"
+    }
+    assert f"Topology domain: name=MBFS id={domain_id}" in caplog.text
+    assert "Projects returned by Keystone=3" in caplog.text
+    assert "MBFS projects=2" in caplog.text

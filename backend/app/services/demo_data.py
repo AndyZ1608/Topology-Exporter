@@ -654,3 +654,16 @@ demo_generator = DemoDataGenerator()
 def get_demo_topology() -> TopologyResponse:
     """Get the demo topology data."""
     return demo_generator.generate()
+
+
+def get_demo_projects() -> dict[str, dict]:
+    """Return demo selector projects without deriving them from graph nodes."""
+    return {
+        DemoDataGenerator.PROJECT_ID: {
+            "id": DemoDataGenerator.PROJECT_ID,
+            "name": DemoDataGenerator.PROJECT_NAME,
+            "domain_id": "demo",
+            "enabled": True,
+            "description": "Network Operations Center",
+        }
+    }

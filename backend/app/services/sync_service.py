@@ -30,6 +30,7 @@ class TopologySyncService:
 
     def __init__(self):
         self._current_topology: Optional[TopologyResponse] = None
+        self._selectable_projects: dict[str, dict] = {}
         self._sync_status: SyncStatusResponse = SyncStatusResponse(status="idle")
         self._sync_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -72,6 +73,20 @@ class TopologySyncService:
     def sync_status(self) -> SyncStatusResponse:
         """Get current sync status."""
         return self._sync_status
+
+    def get_selectable_projects(self) -> list[dict]:
+        """Return only validated Keystone projects from the topology domain."""
+        return sorted(
+            (
+                {**project, "name": project.get("name") or project["id"]}
+                for project in self._selectable_projects.values()
+            ),
+            key=lambda project: project["name"].lower(),
+        )
+
+    def get_selectable_project(self, project_id: str) -> Optional[dict]:
+        project = self._selectable_projects.get(project_id)
+        return dict(project) if project else None
 
     def start_background_sync(self):
         """Start background synchronization thread."""
@@ -130,7 +145,8 @@ class TopologySyncService:
             failed_collectors: list[str] = []
             if settings.DEMO_MODE:
                 # Demo mode - use mock data
-                from app.services.demo_data import get_demo_topology
+                from app.services.demo_data import get_demo_projects, get_demo_topology
+                self._selectable_projects = get_demo_projects()
                 self._current_topology = get_demo_topology()
                 logger.info("Demo topology loaded")
             else:
@@ -227,14 +243,36 @@ class TopologySyncService:
         failed_collectors: list[str] = []
         try:
             domain = self._identity_collector.find_domain(settings.TOPOLOGY_DOMAIN_NAME)
-            logger.info("%s domain id=%s", settings.TOPOLOGY_DOMAIN_NAME, domain["id"])
-            discovered_projects = self._identity_collector.collect_projects(domain["id"])
+            logger.info(
+                "Topology domain: name=%s id=%s",
+                settings.TOPOLOGY_DOMAIN_NAME,
+                domain["id"],
+            )
+            if domain["id"] != settings.TOPOLOGY_DOMAIN_ID:
+                raise RuntimeError(
+                    "Topology domain ID mismatch for "
+                    f"{settings.TOPOLOGY_DOMAIN_NAME}: expected "
+                    f"{settings.TOPOLOGY_DOMAIN_ID}, discovered {domain['id']}"
+                )
+
+            discovered_projects = self._identity_collector.collect_projects()
+            logger.info("Projects returned by Keystone=%s", len(discovered_projects))
             projects = {
                 project_id: project
                 for project_id, project in discovered_projects.items()
                 if project.get("enabled", True)
+                and project.get("domain_id") == settings.TOPOLOGY_DOMAIN_ID
             }
-            logger.info("Projects discovered=%s", len(projects))
+            if any(
+                project.get("domain_id") != settings.TOPOLOGY_DOMAIN_ID
+                for project in projects.values()
+            ):
+                raise RuntimeError("Selectable project escaped topology domain validation")
+            self._selectable_projects = {
+                project_id: dict(project)
+                for project_id, project in projects.items()
+            }
+            logger.info("MBFS projects=%s", len(projects))
         except Exception:
             logger.exception(
                 "System discovery failed domain=%s", settings.TOPOLOGY_DOMAIN_NAME
@@ -384,14 +422,13 @@ class TopologySyncService:
     def get_cloud_summary(self) -> dict:
         """Return operational inventory totals from the current snapshot."""
         nodes = self._current_topology.nodes if self._current_topology else []
-        projects = {node.project_id for node in nodes if node.project_id}
         floating_ips = {
             address
             for node in nodes
             for address in node.properties.floating_ips
         }
         return {
-            "projects": len(projects),
+            "projects": len(self._selectable_projects),
             "servers": sum(node.resource_type == "server" for node in nodes),
             "networks": sum(node.resource_type == "network" for node in nodes),
             "subnets": int(

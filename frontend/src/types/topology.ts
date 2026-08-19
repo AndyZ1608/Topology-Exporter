@@ -139,6 +139,7 @@ export interface SyncStatus {
 export interface Project {
   id: string;
   name: string;
+  domain_id?: string;
 }
 
 export interface ProjectsResponse {
