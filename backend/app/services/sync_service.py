@@ -48,8 +48,8 @@ class TopologySyncService:
         """Restore the latest non-authoritative snapshot if the cache is available."""
         try:
             topology = self._snapshot_repository.load_latest()
-        except Exception as exc:
-            logger.warning("Could not load topology cache (%s)", type(exc).__name__)
+        except Exception:
+            logger.exception("Could not load topology cache")
             return False
         if topology is None:
             return False
@@ -103,8 +103,8 @@ class TopologySyncService:
         while not self._stop_event.wait(timeout=self._sync_interval):
             try:
                 self.sync()
-            except Exception as exc:
-                logger.error("Background sync error (%s)", type(exc).__name__)
+            except Exception:
+                logger.exception("Background sync error")
 
     def sync(self, force: bool = False) -> SyncStatusResponse:
         """
@@ -153,9 +153,9 @@ class TopologySyncService:
                         self._current_topology,
                         status="partial" if failed_collectors else "success",
                     )
-                except Exception as exc:
+                except Exception:
                     # Cache availability must not change the discovered cloud state.
-                    logger.warning("Could not persist topology cache (%s)", type(exc).__name__)
+                    logger.exception("Could not persist topology cache")
 
             duration = time.time() - start_time
             partial = bool(failed_collectors)
@@ -207,7 +207,7 @@ class TopologySyncService:
                     node_count=0,
                     edge_count=0,
                 )
-            logger.error("Sync failed (%s)", type(exc).__name__)
+            logger.exception("Sync failed")
 
         finally:
             self._sync_lock.release()
@@ -215,49 +215,124 @@ class TopologySyncService:
         return self._sync_status
 
     def _sync_from_openstack(self) -> tuple[TopologyResponse, list[str]]:
-        """Sync topology from OpenStack APIs."""
+        """Discover projects with Keystone, then resources with project tokens."""
         from app.openstack.connection import connection_manager
 
-        conn = connection_manager.get_connection()
-        if not conn:
-            raise RuntimeError("No OpenStack connection available")
+        logger.info("System discovery started")
+        system_connection = connection_manager.get_system_connection()
+        if not system_connection:
+            raise RuntimeError("No system-scoped OpenStack connection available")
 
-        # Update collectors with connection
-        self._identity_collector = IdentityCollector(conn)
-        self._compute_collector = ComputeCollector(conn)
-        self._network_collector = NetworkCollector(conn)
-
-        failed_collectors = []
-        # Collect resources with error handling
+        self._identity_collector = IdentityCollector(system_connection)
+        failed_collectors: list[str] = []
         try:
-            projects = self._identity_collector.collect_projects()
-        except Exception as exc:
-            logger.error("Failed to collect projects (%s)", type(exc).__name__)
+            domain = self._identity_collector.find_domain(settings.TOPOLOGY_DOMAIN_NAME)
+            logger.info("%s domain id=%s", settings.TOPOLOGY_DOMAIN_NAME, domain["id"])
+            discovered_projects = self._identity_collector.collect_projects(domain["id"])
+            projects = {
+                project_id: project
+                for project_id, project in discovered_projects.items()
+                if project.get("enabled", True)
+            }
+            logger.info("Projects discovered=%s", len(projects))
+        except Exception:
+            logger.exception(
+                "System discovery failed domain=%s", settings.TOPOLOGY_DOMAIN_NAME
+            )
             failed_collectors.append("keystone")
             projects = {}
 
-        try:
-            servers = self._compute_collector.collect_servers()
-        except Exception as exc:
-            logger.error("Failed to collect servers (%s)", type(exc).__name__)
-            failed_collectors.append("nova")
-            servers = {}
+        servers: dict = {}
+        network_data = {
+            "networks": {},
+            "subnets": {},
+            "ports": {},
+            "routers": {},
+            "floating_ips": {},
+            "trunks": {},
+            "security_groups": {},
+        }
 
-        try:
-            network_data = self._network_collector.collect_all()
-            self._network_collector.link_router_interfaces()
-        except Exception as exc:
-            logger.error("Failed to collect network resources (%s)", type(exc).__name__)
-            failed_collectors.append("neutron")
-            network_data = {
-                "networks": {},
-                "subnets": {},
-                "ports": {},
-                "routers": {},
-                "floating_ips": {},
-                "trunks": {},
-                "security_groups": {},
+        for project in projects.values():
+            project_name = project["name"]
+            project_id = project["id"]
+            logger.info(
+                "Project discovery started project=%s id=%s",
+                project_name,
+                project_id,
+            )
+            project_servers: dict = {}
+            project_network_data = {
+                key: {} for key in network_data
             }
+            try:
+                project_connection = connection_manager.get_project_connection(project)
+            except Exception:
+                logger.exception(
+                    "Project authentication failed project=%s id=%s",
+                    project_name,
+                    project_id,
+                )
+                failed_collectors.append(f"auth:{project_id}")
+                logger.info(
+                    "servers=0 networks=0 subnets=0 ports=0 routers=0 "
+                    "floating_ips=0 trunks=0"
+                )
+                logger.info(
+                    "Project discovery completed project=%s id=%s status=failed",
+                    project_name,
+                    project_id,
+                )
+                continue
+
+            self._compute_collector = ComputeCollector(project_connection)
+            try:
+                project_servers = self._compute_collector.collect_servers()
+                servers.update(project_servers)
+            except Exception:
+                logger.exception(
+                    "Nova discovery failed project=%s id=%s",
+                    project_name,
+                    project_id,
+                )
+                failed_collectors.append(f"nova:{project_id}")
+
+            self._network_collector = NetworkCollector(project_connection)
+            try:
+                project_network_data = self._network_collector.collect_all()
+            except Exception:
+                # Individual Neutron API calls are already isolated inside the
+                # collector. This guard keeps an unexpected normalization bug
+                # in one project from stopping discovery of later projects.
+                logger.exception(
+                    "Neutron discovery failed project=%s id=%s",
+                    project_name,
+                    project_id,
+                )
+                failed_collectors.append(f"neutron:{project_id}")
+            for resource_name in network_data:
+                network_data[resource_name].update(
+                    project_network_data.get(resource_name, {})
+                )
+            for resource_name in project_network_data.get("failed_resources", []):
+                failed_collectors.append(f"neutron.{resource_name}:{project_id}")
+
+            logger.info(
+                "servers=%s networks=%s subnets=%s ports=%s routers=%s "
+                "floating_ips=%s trunks=%s",
+                len(project_servers),
+                len(project_network_data.get("networks", {})),
+                len(project_network_data.get("subnets", {})),
+                len(project_network_data.get("ports", {})),
+                len(project_network_data.get("routers", {})),
+                len(project_network_data.get("floating_ips", {})),
+                len(project_network_data.get("trunks", {})),
+            )
+            logger.info(
+                "Project discovery completed project=%s id=%s",
+                project_name,
+                project_id,
+            )
 
         # Build topology
         topology = self._graph_builder.build_from_openstack(
@@ -270,18 +345,6 @@ class TopologySyncService:
             floating_ips=network_data.get("floating_ips", {}),
             trunks=network_data.get("trunks", {}),
             security_groups=network_data.get("security_groups", {}),
-        )
-        logger.info(
-            "Resources discovered projects=%s servers=%s ports=%s networks=%s "
-            "subnets=%s routers=%s floating_ips=%s trunks=%s",
-            len(projects),
-            len(servers),
-            len(network_data.get("ports", {})),
-            len(network_data.get("networks", {})),
-            len(network_data.get("subnets", {})),
-            len(network_data.get("routers", {})),
-            len(network_data.get("floating_ips", {})),
-            len(network_data.get("trunks", {})),
         )
         return topology, failed_collectors
 

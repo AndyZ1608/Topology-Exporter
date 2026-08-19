@@ -138,9 +138,7 @@ clouds:
       auth_url: https://keystone.example.com/v3
       username: topology-reader
       password: YOUR_PASSWORD
-      project_name: admin
       user_domain_name: Default
-      project_domain_name: Default
     region_name: RegionOne
     interface: internal
     identity_api_version: 3
@@ -158,26 +156,19 @@ CLOUDS_YAML_PATH=/app/config/clouds.yaml
 OS_AUTH_URL=https://keystone.example.com/v3
 OS_USERNAME=topology-reader
 OS_PASSWORD=YOUR_PASSWORD
-OS_PROJECT_NAME=admin
+OS_USER_DOMAIN_NAME=Default
+OS_REGION_NAME=RegionOne
+OS_INTERFACE=internal
+OS_IDENTITY_API_VERSION=3
+TOPOLOGY_DOMAIN_NAME=MBFS
 ```
 
-### OpenStack Service Account Requirements
-
-The application requires a read-only service account with the following roles:
-
-- **Keystone**: `reader` on all projects
-- **Nova**: `reader` on all projects (for server listing)
-- **Neutron**: `reader` on all projects (for networks, ports, routers)
-
-Example Role Assignment:
-
-```bash
-# Create read-only project
-openstack project create topology-reader
-
-# Grant reader role to user
-openstack role add --project topology-reader --user topology-reader reader
-```
+Do not set a global `OS_PROJECT_NAME` or `OS_SYSTEM_SCOPE`. The backend creates
+a system-scoped connection only for Keystone project discovery, filters projects
+to `TOPOLOGY_DOMAIN_NAME`, then creates a project-scoped connection for every
+project before querying Nova and Neutron. It never requests Nova
+`all_projects=True`/`all_tenants=True`. Existing validated read-only RBAC is used
+as-is; the application does not require or modify administrator permissions.
 
 ### Device Classification
 
@@ -343,11 +334,13 @@ Do not add `-v` to `down`; that option also removes named volumes.
 # Check if OpenStack is reachable
 curl -k https://keystone.example.com/v3
 
-# Verify credentials
+# Verify base credentials with an explicit scope for CLI testing only
 export OS_AUTH_URL=https://keystone.example.com/v3
 export OS_USERNAME=topology-reader
 export OS_PASSWORD=YOUR_PASSWORD
-openstack token issue
+export OS_USER_DOMAIN_NAME=Default
+export OS_SYSTEM_SCOPE=all
+openstack project list
 ```
 
 **2. "Connection timeout" error**
@@ -367,7 +360,7 @@ TLS_VERIFY=false
 
 **4. Missing projects/networks**
 
-Ensure the service account has `reader` role on all required projects:
+Inspect the existing validated assignments without changing them:
 ```bash
 openstack role assignment list --user topology-reader
 ```

@@ -63,10 +63,11 @@ class Settings(BaseSettings):
     OS_AUTH_URL: str | None = None
     OS_USERNAME: str | None = None
     OS_PASSWORD: SecretStr | None = None
-    OS_PROJECT_NAME: str | None = None
     OS_USER_DOMAIN_NAME: str = "Default"
-    OS_PROJECT_DOMAIN_NAME: str = "Default"
     OS_REGION_NAME: str = "RegionOne"
+    OS_INTERFACE: str = "internal"
+    OS_IDENTITY_API_VERSION: int = 3
+    TOPOLOGY_DOMAIN_NAME: str = "MBFS"
 
     TLS_VERIFY: bool = True
     DATABASE_URL: str = "sqlite:///./topology.db"

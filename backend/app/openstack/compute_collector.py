@@ -17,7 +17,7 @@ class ComputeCollector:
 
     def collect_servers(self) -> dict[str, dict]:
         """
-        Collect all servers across all projects.
+        Collect servers visible to the connection's current project scope.
 
         Returns:
             Dict mapping server_id to normalized server data.
@@ -28,14 +28,15 @@ class ComputeCollector:
 
         try:
             servers = {}
-            # Nova with admin credentials can list all servers
-            for server in self.conn.compute.servers(all_tenants=True):
+            # Never request all_projects/all_tenants. The connection factory
+            # creates a dedicated project-scoped token for this collector.
+            for server in self.conn.compute.servers():
                 servers[server.id] = self._normalize_server(server)
             self._servers_cache = servers
             logger.info(f"Collected {len(servers)} servers")
             return servers
-        except Exception as exc:
-            logger.error("Failed to collect servers (%s)", type(exc).__name__)
+        except Exception:
+            logger.exception("Failed to collect project-scoped servers")
             raise
 
     def _normalize_server(self, server) -> dict:
@@ -93,10 +94,8 @@ class ComputeCollector:
             server = self.conn.compute.get_server(server_id)
             if server:
                 return self._normalize_server(server)
-        except Exception as exc:
-            logger.error(
-                "Failed to get server %s (%s)", server_id, type(exc).__name__
-            )
+        except Exception:
+            logger.exception("Failed to get server %s", server_id)
         return None
 
     def get_servers_by_project(self, project_id: str) -> list[dict]:
