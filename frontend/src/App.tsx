@@ -1,102 +1,86 @@
-/**
- * Main App component.
- */
-import React, { useState, useEffect, useCallback } from 'react';
+/** Main application shell. */
+import React, { useCallback, useEffect, useState } from 'react';
 import TopologyCanvas from './topology/TopologyCanvas';
 import Sidebar from './components/Sidebar';
 import DetailsDrawer from './components/DetailsDrawer';
 import Header from './components/Header';
-import type { CloudSummary, TopologyFilters, TopologyNode, SyncStatus } from './types';
+import type { CloudSummary, TopologyNode, SyncStatus } from './types';
 import { getCloudSummary, getSyncStatus, refreshTopology } from './api/topology';
 
 const App: React.FC = () => {
-  const [filters, setFilters] = useState<TopologyFilters>({
-    projectIds: [],
-    resourceTypes: [],
-    status: '',
-    search: '',
-  });
-
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [cloudSummary, setCloudSummary] = useState<CloudSummary | null>(null);
+  const [projectSummary, setProjectSummary] = useState<CloudSummary | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Load once. Further discovery is explicitly operator-triggered via Refresh.
   useEffect(() => {
-    const loadStatus = async () => {
-      try {
-        const status = await getSyncStatus();
-        setSyncStatus(status);
-        setCloudSummary(await getCloudSummary());
-      } catch (err) {
-        console.error('Failed to get sync status:', err);
-      }
-    };
-
-    loadStatus();
+    getSyncStatus()
+      .then(setSyncStatus)
+      .catch((error) => console.error('Failed to get sync status:', error));
   }, []);
 
-  // Handle filter changes
-  const handleFiltersChange = useCallback((newFilters: TopologyFilters) => {
-    setFilters(newFilters);
+  useEffect(() => {
+    let active = true;
+    setProjectSummary(null);
+    if (!selectedProjectId) return () => { active = false; };
+
+    getCloudSummary(selectedProjectId)
+      .then((summary) => { if (active) setProjectSummary(summary); })
+      .catch((error) => console.error('Failed to load project summary:', error));
+    return () => { active = false; };
+  }, [selectedProjectId, refreshKey]);
+
+  const handleProjectChange = useCallback((projectId: string) => {
+    setSelectedNode(null);
+    setSelectedProjectId(projectId);
   }, []);
 
-  // Handle node selection
   const handleNodeSelect = useCallback((node: TopologyNode | null) => {
     setSelectedNode(node);
   }, []);
 
-  // Handle refresh
   const handleRefresh = useCallback(async () => {
     try {
       await refreshTopology();
-      const status = await getSyncStatus();
-      setSyncStatus(status);
-      setCloudSummary(await getCloudSummary());
+      setSyncStatus(await getSyncStatus());
       setRefreshKey((value) => value + 1);
-    } catch (err) {
-      console.error('Failed to refresh topology:', err);
+    } catch (error) {
+      console.error('Failed to refresh topology:', error);
     }
   }, []);
 
-  // Toggle sidebar
   const toggleSidebar = useCallback(() => {
-    setSidebarOpen((prev) => !prev);
+    setSidebarOpen((open) => !open);
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      {/* Header */}
+    <div className="flex h-screen flex-col bg-gray-50">
       <Header
         syncStatus={syncStatus}
-        cloudSummary={cloudSummary}
+        projectSummary={projectSummary}
         onRefresh={handleRefresh}
         onToggleSidebar={toggleSidebar}
         sidebarOpen={sidebarOpen}
       />
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
+      <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && (
           <Sidebar
-            filters={filters}
-            onFiltersChange={handleFiltersChange}
+            selectedProjectId={selectedProjectId}
+            onProjectChange={handleProjectChange}
           />
         )}
 
-        {/* Topology Canvas */}
         <main className="flex-1 overflow-hidden">
           <TopologyCanvas
-            filters={filters}
+            projectId={selectedProjectId}
             refreshKey={refreshKey}
             onNodeClick={handleNodeSelect}
           />
         </main>
 
-        {/* Details Drawer */}
         <DetailsDrawer
           node={selectedNode}
           onClose={() => setSelectedNode(null)}

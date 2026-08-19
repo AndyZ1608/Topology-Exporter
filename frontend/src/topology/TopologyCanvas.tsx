@@ -10,11 +10,11 @@ import '@xyflow/react/dist/style.css';
 import { nodeTypes } from './nodes/CustomNodes';
 import { edgeTypes } from './edges/CustomEdges';
 import { applyLayout } from './layout';
-import type { TopologyEdge, TopologyFilters, TopologyNode } from '@/types';
+import type { TopologyEdge, TopologyNode } from '@/types';
 import { getInternetPath, getTopology } from '@/api/topology';
 
 interface TopologyCanvasProps {
-  filters: TopologyFilters;
+  projectId: string;
   refreshKey?: number;
   onNodeClick?: (node: TopologyNode | null) => void;
   onEdgeClick?: (edge: TopologyEdge | null) => void;
@@ -36,56 +36,30 @@ function topologyEdge(edge: Edge): TopologyEdge {
   };
 }
 
-function matches(node: TopologyNode, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return false;
-  const externalGateway = node.properties.external_gateway;
-  const interfaceValues = Object.values(node.properties.interfaces || {}).flatMap((networkInterface) => [
-    networkInterface.network_id || '', networkInterface.network_name || '',
-    ...(networkInterface.ip_addresses || []),
-    ...(networkInterface.subnets || []).flatMap((subnet) => [subnet.id, subnet.name || '', subnet.cidr || '']),
-  ]);
-  const routerInterfaceValues = (node.properties.router_interfaces || []).flatMap((routerInterface) => [
-    routerInterface.network_id || '', routerInterface.network_name || '',
-    routerInterface.subnet_id || '', routerInterface.subnet_name || '',
-    routerInterface.subnet_cidr || '', routerInterface.ip_address || '',
-  ]);
-  return [
-    node.name, node.resource_id, node.project_name || '', node.properties.cidr || '',
-    ...node.properties.ips, ...node.properties.floating_ips,
-    externalGateway?.network_id || '', externalGateway?.network_name || '',
-    externalGateway?.subnet_id || '', externalGateway?.subnet_name || '',
-    externalGateway?.subnet_cidr || '', externalGateway?.ip_address || '',
-    ...interfaceValues, ...routerInterfaceValues,
-  ].some((value) => value.toLowerCase().includes(needle));
-}
-
 const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
-  filters, refreshKey = 0, onNodeClick, onEdgeClick,
+  projectId, refreshKey = 0, onNodeClick, onEdgeClick,
 }) => {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [highlightedPath, setHighlightedPath] = useState<string[]>([]);
-  const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const flow = useRef<ReactFlowInstance<Node, Edge> | null>(null);
   const requestSequence = useRef(0);
 
-  const projectKey = filters.projectIds.join(',');
-  const resourceKey = filters.resourceTypes.join(',');
-
   useEffect(() => {
+    if (!projectId) {
+      setNodes([]);
+      setEdges([]);
+      setLoading(false);
+      return;
+    }
     const sequence = ++requestSequence.current;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const topology = await getTopology({
-          projectIds: filters.projectIds,
-          resourceTypes: filters.resourceTypes,
-          status: filters.status || undefined,
-        });
+        const topology = await getTopology(projectId);
         const layout = await applyLayout(topology.nodes, topology.edges);
         if (sequence !== requestSequence.current) return;
         setNodes(layout.nodes);
@@ -100,7 +74,7 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
       }
     };
     load();
-  }, [projectKey, resourceKey, filters.status, refreshKey]);
+  }, [projectId, refreshKey]);
 
   const highlightServerPath = useCallback(async (serverId: string, fallbackNodeId?: string) => {
     try {
@@ -122,25 +96,9 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
     }
   }, [edges]);
 
-  useEffect(() => {
-    const query = filters.search.trim();
-    if (!query) {
-      setSearchMatches([]);
-      return;
-    }
-    const found = nodes.filter((node) => matches(topologyNode(node.data), query));
-    setSearchMatches(found.map((node) => node.id));
-    const first = found[0];
-    if (!first) return;
-    flow.current?.fitView({ nodes: [first], padding: 0.8, maxZoom: 1.35, duration: 400 });
-    const data = topologyNode(first.data);
-    if (data.resource_type === 'server') highlightServerPath(data.resource_id, first.id);
-    else setHighlightedPath([first.id]);
-  }, [filters.search, nodes, highlightServerPath]);
-
   const focusIds = useMemo(
-    () => new Set([...highlightedPath, ...searchMatches]),
-    [highlightedPath, searchMatches],
+    () => new Set(highlightedPath),
+    [highlightedPath],
   );
   const styledNodes = useMemo(() => {
     if (focusIds.size === 0) return nodes;
@@ -182,9 +140,8 @@ const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
   const handlePaneClick = useCallback(() => {
     setHighlightedPath([]);
-    if (!filters.search.trim()) setSearchMatches([]);
     onNodeClick?.(null);
-  }, [filters.search, onNodeClick]);
+  }, [onNodeClick]);
 
   if (loading) return <div className="flex h-full items-center justify-center bg-slate-50 text-sm text-slate-500">Loading topology…</div>;
   if (error) return <div className="flex h-full items-center justify-center bg-slate-50 text-sm text-red-600">{error}</div>;

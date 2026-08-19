@@ -10,8 +10,10 @@ router = APIRouter(tags=["inventory"])
 
 
 @router.get("/cloud/summary")
-async def cloud_summary():
-    return get_sync_service().get_cloud_summary()
+async def cloud_summary(
+    project_id: str | None = Query(None, description="Scope inventory to one project"),
+):
+    return get_sync_service().get_cloud_summary(project_id=project_id)
 
 
 def _resource_or_404(resource_type: str, resource_id: str) -> dict:

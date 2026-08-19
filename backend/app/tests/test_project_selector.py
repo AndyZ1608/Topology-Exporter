@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 import app.api.projects as projects_api
+import app.api.inventory as inventory_api
 from app.main import app
 from app.schemas.topology import (
     NodeProperties,
@@ -64,6 +65,7 @@ def test_projects_api_excludes_external_resource_owner_outside_mbfs(monkeypatch)
         ],
     )
     monkeypatch.setattr(projects_api, "get_sync_service", lambda: service)
+    monkeypatch.setattr(inventory_api, "get_sync_service", lambda: service)
 
     response = TestClient(app).get("/api/v1/projects")
 
@@ -82,6 +84,15 @@ def test_projects_api_excludes_external_resource_owner_outside_mbfs(monkeypatch)
     assert ADMIN_PROJECT_ID not in {
         project["id"] for project in response.json()["projects"]
     }
+
+    summary_response = TestClient(app).get(
+        f"/api/v1/cloud/summary?project_id={DBA_PROJECT_ID}"
+    )
+    assert summary_response.status_code == 200
+    assert summary_response.json()["projects"] == 1
+    assert summary_response.json()["servers"] == 1
+    assert summary_response.json()["networks"] == 0
+    assert summary_response.json()["routers"] == 0
 
     # The selector and graph dependencies are intentionally separate: the
     # admin-owned external network remains useful to explain DBA connectivity.
@@ -106,4 +117,3 @@ def test_projects_api_rejects_non_selectable_dependency_owner(monkeypatch):
     response = TestClient(app).get(f"/api/v1/projects/{ADMIN_PROJECT_ID}")
 
     assert response.status_code == 404
-

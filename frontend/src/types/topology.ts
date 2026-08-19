@@ -159,14 +159,6 @@ export interface CloudSummary {
   partial: boolean;
 }
 
-// Filter types
-export interface TopologyFilters {
-  projectIds: string[];
-  resourceTypes: string[];
-  status: string;
-  search: string;
-}
-
 // Node roles for display
 export const NODE_ROLE_LABELS: Record<string, string> = {
   vm: 'VM',

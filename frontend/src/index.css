@@ -59,11 +59,19 @@ body {
 
 /* Compact architecture-diagram nodes. */
 .traffic-vm {
-  @apply h-full w-full rounded-md border border-slate-200 bg-white px-3 py-2 shadow-none;
+  @apply h-full w-full rounded-md border border-sky-200 border-l-2 border-l-sky-400 bg-sky-50/80 px-3 py-2 shadow-sm;
+}
+
+.traffic-appliance {
+  @apply h-full w-full rounded-md border border-violet-200 bg-violet-50/80 px-3 py-2 shadow-sm;
 }
 
 .traffic-device {
   @apply h-full w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 shadow-none;
+}
+
+.traffic-router {
+  @apply h-full w-full rounded-lg border border-violet-300 border-l-[3px] border-l-violet-500 bg-violet-50 px-3 py-2.5 shadow-sm;
 }
 
 .traffic-network-group {

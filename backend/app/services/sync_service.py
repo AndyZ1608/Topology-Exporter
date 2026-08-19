@@ -419,16 +419,21 @@ class TopologySyncService:
                 return self.get_node(node.id)
         return None
 
-    def get_cloud_summary(self) -> dict:
-        """Return operational inventory totals from the current snapshot."""
+    def get_cloud_summary(self, project_id: str | None = None) -> dict:
+        """Return inventory totals, optionally scoped by resource ownership."""
         nodes = self._current_topology.nodes if self._current_topology else []
+        if project_id:
+            nodes = [node for node in nodes if node.project_id == project_id]
+            project_count = int(self.get_selectable_project(project_id) is not None)
+        else:
+            project_count = len(self._selectable_projects)
         floating_ips = {
             address
             for node in nodes
             for address in node.properties.floating_ips
         }
         return {
-            "projects": len(self._selectable_projects),
+            "projects": project_count,
             "servers": sum(node.resource_type == "server" for node in nodes),
             "networks": sum(node.resource_type == "network" for node in nodes),
             "subnets": int(

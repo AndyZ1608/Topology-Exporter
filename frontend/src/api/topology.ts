@@ -7,7 +7,6 @@ import type {
   InternetPathResponse,
   SyncStatus,
   ProjectsResponse,
-  TopologyFilters,
   CloudSummary,
 } from '@/types';
 
@@ -29,8 +28,10 @@ export async function getHealth(): Promise<{ status: string; demo_mode: boolean 
   return response.data;
 }
 
-export async function getCloudSummary(): Promise<CloudSummary> {
-  const response = await api.get('/cloud/summary');
+export async function getCloudSummary(projectId?: string): Promise<CloudSummary> {
+  const response = await api.get('/cloud/summary', {
+    params: projectId ? { project_id: projectId } : undefined,
+  });
   return response.data;
 }
 
@@ -53,18 +54,10 @@ export async function refreshTopology(): Promise<SyncStatus> {
 /**
  * Get topology with filters
  */
-export async function getTopology(filters?: Partial<TopologyFilters>): Promise<TopologyResponse> {
+export async function getTopology(projectId?: string): Promise<TopologyResponse> {
   const params = new URLSearchParams();
 
-  if (filters?.projectIds?.length) {
-    params.append('project_id', filters.projectIds.join(','));
-  }
-  if (filters?.resourceTypes?.length) {
-    params.append('resource_type', filters.resourceTypes.join(','));
-  }
-  if (filters?.status) {
-    params.append('status', filters.status);
-  }
+  if (projectId) params.append('project_id', projectId);
   const response = await api.get('/topology', { params });
   return response.data;
 }

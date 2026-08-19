@@ -6,7 +6,7 @@ import type { CloudSummary, SyncStatus } from '@/types';
 
 interface HeaderProps {
   syncStatus: SyncStatus | null;
-  cloudSummary: CloudSummary | null;
+  projectSummary: CloudSummary | null;
   onRefresh: () => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
@@ -14,7 +14,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({
   syncStatus,
-  cloudSummary,
+  projectSummary,
   onRefresh,
   onToggleSidebar,
   sidebarOpen,
@@ -84,14 +84,13 @@ const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {cloudSummary && (
-        <div className="hidden xl:flex items-center gap-5 text-xs">
+      {projectSummary && (
+        <div className="hidden items-center gap-6 text-xs lg:flex">
           {[
-            ['Projects', cloudSummary.projects],
-            ['VMs', cloudSummary.servers],
-            ['Networks', cloudSummary.networks],
-            ['Routers', cloudSummary.routers],
-            ['Floating IPs', cloudSummary.floating_ips],
+            [projectSummary.projects === 1 ? 'Project' : 'Projects', projectSummary.projects],
+            [projectSummary.servers === 1 ? 'VM' : 'VMs', projectSummary.servers],
+            [projectSummary.networks === 1 ? 'Network' : 'Networks', projectSummary.networks],
+            [projectSummary.routers === 1 ? 'Router' : 'Routers', projectSummary.routers],
           ].map(([label, value]) => (
             <div key={String(label)} className="text-center">
               <div className="font-semibold text-gray-900">{value}</div>
