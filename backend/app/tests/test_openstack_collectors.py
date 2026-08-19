@@ -114,3 +114,10 @@ def test_trunk_parent_and_subports_are_normalized():
         "segmentation_type": "vlan",
         "segmentation_id": 10,
     }]
+
+
+def test_router_gateway_is_not_classified_as_internal_interface():
+    assert NetworkCollector._categorize_device_owner("network:router_gateway") == "router_gateway"
+    assert NetworkCollector._categorize_device_owner("network:router_interface") == "router_interface"
+    assert NetworkCollector._categorize_device_owner("network:router_interface_distributed") == "router_interface"
+    assert NetworkCollector._categorize_device_owner("network:ha_router_replicated_interface") == "router_interface"

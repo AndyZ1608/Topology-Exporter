@@ -59,6 +59,101 @@ class GraphBuilder:
         """Get a node by resource type and ID."""
         return self._nodes_by_resource.get(f"{resource_type}:{resource_id}")
 
+    @staticmethod
+    def _router_interfaces(
+        router: dict,
+        ports: dict,
+        networks: dict,
+        subnets: dict,
+    ) -> list[dict]:
+        """Resolve each router interface IP from its actual Neutron port."""
+        interfaces = router.get("interfaces", [])
+        if not interfaces:
+            interfaces = [
+                port for port in ports.values()
+                if port.get("device_id") == router["id"]
+                and port.get("device_owner_category") == "router_interface"
+            ]
+
+        resolved = []
+        for interface in interfaces:
+            port_id = interface.get("port_id") or interface.get("id")
+            port = ports.get(port_id, {})
+            network_id = interface.get("network_id") or port.get("network_id")
+            fixed_ips = interface.get("fixed_ips") or port.get("fixed_ips") or []
+            base = {
+                "port_id": port_id,
+                "network_id": network_id,
+                "network_name": networks.get(network_id, {}).get("name"),
+            }
+            if not fixed_ips:
+                resolved.append({**base, "subnet_id": None, "subnet_name": None,
+                                 "subnet_cidr": None, "ip_address": None})
+                continue
+            for fixed_ip in fixed_ips:
+                subnet_id = fixed_ip.get("subnet_id")
+                subnet = subnets.get(subnet_id, {})
+                resolved.append({
+                    **base,
+                    "subnet_id": subnet_id,
+                    "subnet_name": subnet.get("name"),
+                    "subnet_cidr": subnet.get("cidr"),
+                    "ip_address": fixed_ip.get("ip_address"),
+                })
+        return resolved
+
+    @staticmethod
+    def _router_external_gateway(
+        router: dict,
+        ports: dict,
+        networks: dict,
+        subnets: dict,
+    ) -> Optional[dict]:
+        """Resolve external gateway metadata, falling back to gateway ports."""
+        gateway_info = router.get("external_gateway_info")
+        if not gateway_info:
+            return None
+        network_id = gateway_info.get("network_id")
+        network = networks.get(network_id)
+        if not network:
+            return None
+
+        fixed_ips = gateway_info.get("external_fixed_ips") or []
+        if not any(item.get("ip_address") for item in fixed_ips):
+            fixed_ips = [
+                fixed_ip
+                for port in ports.values()
+                if port.get("device_id") == router["id"]
+                and port.get("device_owner_category") == "router_gateway"
+                and port.get("network_id") == network_id
+                for fixed_ip in port.get("fixed_ips", [])
+            ]
+
+        normalized_ips = []
+        for fixed_ip in fixed_ips:
+            if not fixed_ip.get("ip_address"):
+                continue
+            subnet_id = fixed_ip.get("subnet_id")
+            subnet = subnets.get(subnet_id, {})
+            normalized_ips.append({
+                "subnet_id": subnet_id,
+                "subnet_name": subnet.get("name"),
+                "subnet_cidr": subnet.get("cidr"),
+                "ip_address": fixed_ip.get("ip_address"),
+            })
+
+        primary = normalized_ips[0] if normalized_ips else {}
+        return {
+            "network_id": network_id,
+            "network_name": network.get("name"),
+            "enable_snat": gateway_info.get("enable_snat"),
+            "subnet_id": primary.get("subnet_id"),
+            "subnet_name": primary.get("subnet_name"),
+            "subnet_cidr": primary.get("subnet_cidr"),
+            "ip_address": primary.get("ip_address"),
+            "fixed_ips": normalized_ips,
+        }
+
     def build_from_openstack(
         self,
         projects: dict,
@@ -135,37 +230,54 @@ class GraphBuilder:
 
         # 2. Add routers
         for router in routers.values():
-            router_node = self.normalizer.normalize_router(router)
-            router_node.properties.router_interfaces = [
-                {
-                    "port_id": interface.get("port_id"),
-                    "network_id": interface.get("network_id"),
-                    "network_name": networks.get(interface.get("network_id"), {}).get("name"),
-                    "subnets": [
-                        subnet.get("cidr")
-                        for subnet in subnets.values()
-                        if subnet.get("network_id") == interface.get("network_id")
-                        and subnet.get("cidr")
-                    ],
-                }
-                for interface in router.get("interfaces", [])
-            ]
+            router_interfaces = self._router_interfaces(
+                router, ports, networks, subnets
+            )
+            external_gateway = self._router_external_gateway(
+                router, ports, networks, subnets
+            )
+            router_node = self.normalizer.normalize_router({
+                **router,
+                "normalized_external_gateway": external_gateway,
+            })
+            router_node.properties.router_interfaces = router_interfaces
             self.add_node(router_node)
 
             # Router interface relationships
-            for iface in router.get("interfaces", []):
+            for iface in router_interfaces:
                 self.relationship_engine.add_router_interface_relationship(
                     router["id"],
                     iface["network_id"],
                     iface.get("port_id"),
+                    properties={
+                        "network_id": iface.get("network_id"),
+                        "subnet_id": iface.get("subnet_id"),
+                        "gateway_ip": iface.get("ip_address"),
+                    },
                 )
 
-            # External gateway relationship
-            if router.get("external_gateway_info"):
-                ext_net_id = router["external_gateway_info"]["network_id"]
+            # Preserve the infrastructure edge and add a direct visual
+            # abstraction to Internet with enough metadata to explain it.
+            if external_gateway:
+                ext_net_id = external_gateway["network_id"]
+                gateway_properties = {
+                    "ip_address": external_gateway.get("ip_address"),
+                    "external_network_id": ext_net_id,
+                    "external_network_name": external_gateway.get("network_name"),
+                    "external_subnet_id": external_gateway.get("subnet_id"),
+                    "external_subnet_cidr": external_gateway.get("subnet_cidr"),
+                    "connection_kind": "router_external_gateway",
+                }
                 self.relationship_engine.add_external_gateway_relationship(
                     router["id"],
                     ext_net_id,
+                    properties=gateway_properties,
+                )
+                self.relationship_engine.add_device_internet_relationship(
+                    "router",
+                    router["id"],
+                    ext_net_id,
+                    gateway_properties,
                 )
 
         # 3. Add servers (VMs and firewalls)
@@ -201,6 +313,7 @@ class GraphBuilder:
             for interface in server_node.properties.interfaces.values():
                 network = networks.get(interface.get("network_id"), {})
                 interface["network_name"] = network.get("name")
+                interface["is_external"] = bool(network.get("router:external"))
                 interface["subnets"] = [
                     {
                         "id": subnet_id,
@@ -249,6 +362,40 @@ class GraphBuilder:
                             "mac_address": port.get("mac_address"),
                         },
                     )
+
+                    network = networks.get(port.get("network_id"), {})
+                    if network.get("router:external"):
+                        wan_ip = next(
+                            (
+                                fixed_ip.get("ip_address")
+                                for fixed_ip in port.get("fixed_ips", [])
+                                if fixed_ip.get("ip_address")
+                            ),
+                            None,
+                        )
+                        subnet_id = next(
+                            (
+                                fixed_ip.get("subnet_id")
+                                for fixed_ip in port.get("fixed_ips", [])
+                                if fixed_ip.get("ip_address")
+                            ),
+                            None,
+                        )
+                        self.relationship_engine.add_device_internet_relationship(
+                            "server",
+                            server["id"],
+                            port["id"],
+                            {
+                                "port_id": port["id"],
+                                "network_id": port.get("network_id"),
+                                "ip_address": wan_ip,
+                                "external_network_id": port.get("network_id"),
+                                "external_network_name": network.get("name"),
+                                "external_subnet_id": subnet_id,
+                                "external_subnet_cidr": subnets.get(subnet_id, {}).get("cidr"),
+                                "connection_kind": "vm_external_interface",
+                            },
+                        )
 
                     # Floating IPs are exposed on the server's properties. They
                     # are not graph nodes by default, so do not create dangling

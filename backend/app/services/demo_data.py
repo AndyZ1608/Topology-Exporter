@@ -547,7 +547,10 @@ class DemoDataGenerator:
                 "external_gateway_info": {
                     "network_id": self.WAN_NETWORK_ID,
                     "enable_snat": True,
-                    "external_fixed_ips": [],
+                    "external_fixed_ips": [{
+                        "subnet_id": self.WAN_SUBNET_ID,
+                        "ip_address": "203.0.113.254",
+                    }],
                 },
                 "interfaces": [
                     {"port_id": "router-if-vlan10", "network_id": self.VLAN10_NETWORK_ID},

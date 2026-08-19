@@ -91,9 +91,14 @@ class RelationshipEngine:
         router_id: str,
         network_id: str,
         port_id: str = None,
+        properties: dict = None,
     ) -> TopologyEdge:
         """Add a router-to-network interface relationship."""
-        edge_id = f"edge-router-{router_id}-{network_id}"
+        discriminator = port_id or network_id
+        subnet_id = (properties or {}).get("subnet_id")
+        if subnet_id:
+            discriminator = f"{discriminator}-{subnet_id}"
+        edge_id = f"edge-router-{router_id}-{discriminator}"
 
         edge = TopologyEdge(
             id=edge_id,
@@ -102,7 +107,7 @@ class RelationshipEngine:
             relationship="router_interface",
             inferred=False,
             confidence=1.0,
-            properties=EdgeProperties(port_id=port_id),
+            properties=EdgeProperties(port_id=port_id, **(properties or {})),
         )
         self._edges.append(edge)
         return edge
@@ -143,6 +148,26 @@ class RelationshipEngine:
             relationship="internet_uplink",
             inferred=True,
             confidence=confidence,
+        )
+        self._edges.append(edge)
+        return edge
+
+    def add_device_internet_relationship(
+        self,
+        resource_type: str,
+        resource_id: str,
+        discriminator: str,
+        properties: dict,
+    ) -> TopologyEdge:
+        """Add a visible device-to-Internet abstraction backed by real data."""
+        edge = TopologyEdge(
+            id=f"edge-internet-{resource_type}-{resource_id}-{discriminator}",
+            source=f"{resource_type}:{resource_id}",
+            target="internet",
+            relationship="internet_uplink",
+            inferred=False,
+            confidence=1.0,
+            properties=EdgeProperties(**properties),
         )
         self._edges.append(edge)
         return edge

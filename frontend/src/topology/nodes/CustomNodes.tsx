@@ -21,6 +21,12 @@ const TrafficHandles = ({ color = '!bg-slate-400' }: { color?: string }) => (
   </>
 );
 
+function externalInterface(node: TopologyNode) {
+  return Object.values(node.properties.interfaces || {}).find(
+    (networkInterface) => networkInterface.is_external || networkInterface.role === 'WAN',
+  );
+}
+
 export const ServerNode: React.FC<NodeProps> = memo(({ data }) => {
   const node = topologyNode(data);
   const ips = node.properties.ips || [];
@@ -44,7 +50,7 @@ ServerNode.displayName = 'ServerNode';
 
 export const FirewallNode: React.FC<NodeProps> = memo(({ data }) => {
   const node = topologyNode(data);
-  const ips = node.properties.ips || [];
+  const wan = externalInterface(node);
   return (
     <div className="traffic-vm border-l-2 border-l-rose-400" title={`${node.status} · OpenStack appliance VM`}>
       <TrafficHandles color="!bg-rose-400" />
@@ -53,8 +59,11 @@ export const FirewallNode: React.FC<NodeProps> = memo(({ data }) => {
         <span className="truncate text-xs font-semibold text-slate-800">{node.name}</span>
         <span className="ml-auto text-[9px] uppercase tracking-wide text-rose-500">FW VM</span>
       </div>
-      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-slate-500">
-        {ips.slice(0, 2).join(' · ') || 'No fixed IP'}
+      <div
+        className="mt-1 truncate pl-4 font-mono text-[11px] text-rose-600"
+        title={wan ? `External Network: ${wan.network_name || wan.network_id}` : undefined}
+      >
+        {wan?.ip_addresses?.[0] ? `WAN ${wan.ip_addresses[0]}` : 'No WAN interface'}
       </div>
     </div>
   );
@@ -63,6 +72,7 @@ FirewallNode.displayName = 'FirewallNode';
 
 export const ApplianceNode: React.FC<NodeProps> = memo(({ data }) => {
   const node = topologyNode(data);
+  const wan = externalInterface(node);
   return (
     <div className="traffic-vm border-l-2 border-l-violet-400" title={`${node.status} · OpenStack router VM`}>
       <TrafficHandles color="!bg-violet-400" />
@@ -71,8 +81,8 @@ export const ApplianceNode: React.FC<NodeProps> = memo(({ data }) => {
         <span className="truncate text-xs font-semibold text-slate-800">{node.name}</span>
         <span className="ml-auto text-[9px] uppercase tracking-wide text-violet-500">Router VM</span>
       </div>
-      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-slate-500">
-        {node.properties.ips.slice(0, 2).join(' · ') || 'No fixed IP'}
+      <div className="mt-1 truncate pl-4 font-mono text-[11px] text-violet-600">
+        {wan?.ip_addresses?.[0] ? `WAN ${wan.ip_addresses[0]}` : 'No WAN interface'}
       </div>
     </div>
   );
@@ -106,11 +116,18 @@ NetworkGroupNode.displayName = 'NetworkGroupNode';
 
 export const RouterNode: React.FC<NodeProps> = memo(({ data }) => {
   const node = topologyNode(data);
+  const gateway = node.properties.external_gateway;
   return (
-    <div className="traffic-device border-l-2 border-l-violet-400">
+    <div
+      className="traffic-device border-l-2 border-l-violet-400"
+      title={gateway ? `External Network: ${gateway.network_name || gateway.network_id}${gateway.subnet_cidr ? ` · ${gateway.subnet_cidr}` : ''}` : undefined}
+    >
       <TrafficHandles color="!bg-violet-400" />
       <div className="truncate text-xs font-semibold text-slate-800" title={node.name}>{node.name}</div>
       <div className="mt-1 text-[10px] uppercase tracking-wide text-violet-600">Neutron Router</div>
+      <div className="mt-1.5 truncate font-mono text-[11px] text-slate-600">
+        {gateway?.ip_address ? `WAN ${gateway.ip_address}` : gateway ? 'WAN IP unavailable' : 'No external gateway'}
+      </div>
     </div>
   );
 });

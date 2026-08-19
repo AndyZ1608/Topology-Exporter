@@ -133,12 +133,13 @@ class TopologyNormalizer:
 
     def normalize_router(self, router: dict) -> TopologyNode:
         """Normalize a Neutron router to a topology node."""
-        external_gateway = None
-        if router.get("external_gateway_info"):
+        external_gateway = router.get("normalized_external_gateway")
+        if external_gateway is None and router.get("external_gateway_info"):
             ext_gw = router["external_gateway_info"]
             external_gateway = {
                 "network_id": ext_gw.get("network_id"),
                 "enable_snat": ext_gw.get("enable_snat"),
+                "fixed_ips": ext_gw.get("external_fixed_ips", []),
             }
 
         properties = NodeProperties(

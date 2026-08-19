@@ -73,7 +73,7 @@ def test_router_path_two_nics_floating_ip_and_two_internal_networks():
     edge_pairs = {(edge.source, edge.target) for edge in topology.edges}
 
     assert builder.find_internet_path("vm-a")["path"] == [
-        "server:vm-a", "network:net-a", "router:router-1", "network:public", "internet"
+        "server:vm-a", "network:net-a", "router:router-1", "internet"
     ]
     assert sum(edge.source == "server:vm-a" and edge.relationship == "attached_to" for edge in topology.edges) == 2
     assert sum(node.id == "server:vm-a" for node in topology.nodes) == 1

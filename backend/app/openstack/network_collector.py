@@ -169,7 +169,12 @@ class NetworkCollector:
         if "compute" in owner_lower:
             return "compute"
         if "network" in owner_lower:
-            if "router" in owner_lower:
+            if "router_gateway" in owner_lower:
+                return "router_gateway"
+            if any(interface_owner in owner_lower for interface_owner in (
+                "router_interface",
+                "ha_router_replicated_interface",
+            )):
                 return "router_interface"
             if "dhcp" in owner_lower:
                 return "dhcp"
@@ -267,6 +272,8 @@ class NetworkCollector:
                     router["interfaces"].append({
                         "port_id": port["id"],
                         "network_id": port["network_id"],
+                        "device_owner": port["device_owner"],
+                        "fixed_ips": port["fixed_ips"],
                     })
 
     def get_networks(self) -> dict:

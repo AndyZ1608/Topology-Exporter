@@ -78,6 +78,13 @@ class EdgeProperties(BaseModel):
     subnet_id: Optional[str] = None
     mac_address: Optional[str] = None
     trunk_id: Optional[str] = None
+    gateway_ip: Optional[str] = None
+    ip_address: Optional[str] = None
+    external_network_id: Optional[str] = None
+    external_network_name: Optional[str] = None
+    external_subnet_id: Optional[str] = None
+    external_subnet_cidr: Optional[str] = None
+    connection_kind: Optional[str] = None
 
 
 class TopologyEdge(BaseModel):

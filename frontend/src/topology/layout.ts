@@ -9,6 +9,9 @@ const VM_HEIGHT = 58;
 const GROUP_HEADER = 72;
 const GROUP_PADDING = 18;
 const GRID_GAP = 14;
+const DEVICE_WIDTH = 170;
+const DEVICE_HEIGHT = 66;
+const ROUTER_HEIGHT = 82;
 
 interface GroupSpec {
   node: TopologyNode;
@@ -75,7 +78,13 @@ export async function applyLayout(
   );
   const nodeById = new Map(operationalNodes.map((node) => [node.id, node]));
   const servers = operationalNodes.filter((node) => node.resource_type === 'server');
-  const networks = operationalNodes.filter((node) => node.resource_type === 'network');
+  const networks = operationalNodes.filter(
+    (node) => node.resource_type === 'network' && !node.properties.is_external,
+  );
+  const visibleOperationalNodes = operationalNodes.filter(
+    (node) => node.resource_type !== 'network' || !node.properties.is_external,
+  );
+  const visibleNodeIds = new Set(visibleOperationalNodes.map((node) => node.id));
   const attachedNetworks = new Map<string, Set<string>>();
 
   for (const edge of topologyEdges) {
@@ -92,9 +101,14 @@ export async function applyLayout(
   const parentByServer = new Map<string, string>();
   for (const server of servers) {
     const memberships = [...(attachedNetworks.get(server.id) || [])];
-    const parentId = memberships.length === 1
-      ? memberships[0]
-      : memberships.length === 0 ? 'group:unconnected' : undefined;
+    const internalMemberships = memberships.filter(
+      (networkId) => !nodeById.get(networkId)?.properties.is_external,
+    );
+    const parentId = memberships.length === 0
+      ? 'group:unconnected'
+      : memberships.length === 1 && internalMemberships.length === 1
+        ? internalMemberships[0]
+        : undefined;
     if (!parentId) continue;
     parentByServer.set(server.id, parentId);
     const children = childrenByGroup.get(parentId) || [];
@@ -110,21 +124,23 @@ export async function applyLayout(
     groupSpecs.set(network.id, { node: network, children, ...groupDimensions(children.length) });
   }
 
-  const standaloneNodes = operationalNodes.filter(
+  const standaloneNodes = visibleOperationalNodes.filter(
     (node) => node.resource_type !== 'network' && !parentByServer.has(node.id),
   );
   const elkNodes: ELKNode[] = [
     ...[...groupSpecs.values()].map((group) => ({ id: group.node.id, width: group.width, height: group.height })),
     ...standaloneNodes.map((node) => ({
       id: node.id,
-      width: node.resource_type === 'server' ? VM_WIDTH : 170,
-      height: node.resource_type === 'server' ? VM_HEIGHT : 66,
+      width: node.resource_type === 'server' ? VM_WIDTH : DEVICE_WIDTH,
+      height: node.resource_type === 'server'
+        ? VM_HEIGHT
+        : node.resource_type === 'router' ? ROUTER_HEIGHT : DEVICE_HEIGHT,
     })),
   ];
   const topLevelIds = new Set(elkNodes.map((node) => node.id));
 
   const visibleEdges = topologyEdges.filter((edge) => {
-    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) return false;
+    if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) return false;
     if (['contains', 'ha_member', 'trunk_parent', 'trunk_subport', 'egress_via'].includes(edge.relationship)) return false;
     return !(edge.relationship === 'attached_to' && parentByServer.get(edge.source) === edge.target);
   });
@@ -192,8 +208,10 @@ export async function applyLayout(
       id: node.id, type: displayNodeType(node),
       position: { x: position?.x || 0, y: position?.y || 0 }, data: { ...node },
       style: {
-        width: node.resource_type === 'server' ? VM_WIDTH : 170,
-        height: node.resource_type === 'server' ? VM_HEIGHT : 66,
+        width: node.resource_type === 'server' ? VM_WIDTH : DEVICE_WIDTH,
+        height: node.resource_type === 'server'
+          ? VM_HEIGHT
+          : node.resource_type === 'router' ? ROUTER_HEIGHT : DEVICE_HEIGHT,
       },
       zIndex: 2,
     });
@@ -202,7 +220,16 @@ export async function applyLayout(
   const flowEdges: Edge[] = visibleEdges.map((edge) => ({
     id: edge.id, source: edge.source, target: edge.target,
     type: edge.inferred ? 'inferred' : 'confirmed', animated: false,
-    data: { relationship: edge.relationship, confidence: edge.confidence, ...edge.properties },
+    data: {
+      relationship: edge.relationship,
+      confidence: edge.confidence,
+      ...edge.properties,
+      label: edge.relationship === 'router_interface' && edge.properties.gateway_ip
+        ? `GW ${edge.properties.gateway_ip}`
+        : edge.target === 'internet' && edge.properties.ip_address
+          ? `WAN ${edge.properties.ip_address}`
+          : undefined,
+    },
     style: { stroke: edge.inferred ? '#94a3b8' : '#64748b' },
     markerEnd: ['router_interface', 'external_gateway', 'internet_uplink'].includes(edge.relationship)
       ? { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#64748b' }

@@ -17,6 +17,7 @@ export interface NodeProperties {
     role?: string;
     network_id?: string;
     network_name?: string;
+    is_external?: boolean;
     mac_address?: string;
     ip_addresses?: string[];
     subnet_ids?: string[];
@@ -28,7 +29,18 @@ export interface NodeProperties {
   metadata: Record<string, string | number | boolean | null>;
   external_gateway?: {
     network_id: string;
+    network_name?: string;
     enable_snat?: boolean;
+    subnet_id?: string;
+    subnet_name?: string;
+    subnet_cidr?: string;
+    ip_address?: string;
+    fixed_ips?: Array<{
+      subnet_id?: string;
+      subnet_name?: string;
+      subnet_cidr?: string;
+      ip_address?: string;
+    }>;
   };
   floating_ips: string[];
   security_groups: string[];
@@ -42,7 +54,10 @@ export interface NodeProperties {
     port_id?: string;
     network_id?: string;
     network_name?: string;
-    subnets: string[];
+    subnet_id?: string;
+    subnet_name?: string;
+    subnet_cidr?: string;
+    ip_address?: string;
   }>;
 }
 
@@ -73,6 +88,13 @@ export interface EdgeProperties {
   subnet_id?: string;
   mac_address?: string;
   trunk_id?: string;
+  gateway_ip?: string;
+  ip_address?: string;
+  external_network_id?: string;
+  external_network_name?: string;
+  external_subnet_id?: string;
+  external_subnet_cidr?: string;
+  connection_kind?: 'router_external_gateway' | 'vm_external_interface';
 }
 
 export interface TopologyEdge {

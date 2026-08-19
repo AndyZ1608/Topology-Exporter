@@ -348,22 +348,37 @@ const DetailsDrawer: React.FC<DetailsDrawerProps> = ({ node, onClose }) => {
         {node.resource_type === 'router' && (
           <>
             <section>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Interfaces</h3>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Internal Interfaces</h3>
               <div className="space-y-2">
                 {node.properties.router_interfaces?.map((routerInterface) => (
-                  <div key={routerInterface.port_id || routerInterface.network_id} className="rounded border border-gray-200 p-2 text-xs">
-                    <div className="font-medium text-gray-800">{routerInterface.network_name || routerInterface.network_id}</div>
-                    {routerInterface.subnets?.map((cidr) => <div key={cidr} className="font-mono text-gray-500">{cidr}</div>)}
-                    {routerInterface.port_id && <div className="mt-1 font-mono text-gray-400">Port {routerInterface.port_id}</div>}
+                  <div key={`${routerInterface.port_id || routerInterface.network_id}-${routerInterface.subnet_id || ''}`} className="rounded border border-gray-200 p-2 text-xs">
+                    <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1">
+                      <span className="text-gray-500">Network</span>
+                      <span className="font-medium text-gray-800">{routerInterface.network_name || routerInterface.network_id}</span>
+                      <span className="text-gray-500">Subnet</span>
+                      <span className="font-mono text-gray-700">{routerInterface.subnet_cidr || routerInterface.subnet_name || routerInterface.subnet_id || 'Unknown'}</span>
+                      <span className="text-gray-500">Gateway IP</span>
+                      <span className="font-mono text-gray-900">{routerInterface.ip_address || 'Unavailable'}</span>
+                    </div>
+                    {routerInterface.port_id && <div className="mt-2 truncate font-mono text-gray-400" title={routerInterface.port_id}>Port {routerInterface.port_id}</div>}
                   </div>
                 ))}
+                {!node.properties.router_interfaces?.length && <div className="text-xs text-gray-500">No internal interfaces</div>}
               </div>
             </section>
             {node.properties.external_gateway && (
               <section>
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">External Gateway</h3>
-                <div className="text-sm font-mono text-gray-700">{node.properties.external_gateway.network_id}</div>
-                <div className="mt-1 text-xs text-gray-500">SNAT: {node.properties.external_gateway.enable_snat ? 'Enabled' : 'Disabled'}</div>
+                <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-2 text-xs">
+                  <dt className="text-gray-500">Network</dt>
+                  <dd className="text-gray-900">{node.properties.external_gateway.network_name || node.properties.external_gateway.network_id}</dd>
+                  <dt className="text-gray-500">Subnet</dt>
+                  <dd className="font-mono text-gray-700">{node.properties.external_gateway.subnet_cidr || node.properties.external_gateway.subnet_name || node.properties.external_gateway.subnet_id || 'Unavailable'}</dd>
+                  <dt className="text-gray-500">IP</dt>
+                  <dd className="font-mono text-gray-900">{node.properties.external_gateway.ip_address || 'Unavailable'}</dd>
+                  <dt className="text-gray-500">SNAT</dt>
+                  <dd className="text-gray-700">{node.properties.external_gateway.enable_snat == null ? 'Unavailable' : node.properties.external_gateway.enable_snat ? 'Enabled' : 'Disabled'}</dd>
+                </dl>
               </section>
             )}
           </>

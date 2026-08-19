@@ -410,6 +410,53 @@ class TopologySyncService:
             "partial": self._sync_status.partial,
         }
 
+    @staticmethod
+    def _searchable_values(node) -> list[str]:
+        external_gateway = node.properties.external_gateway or {}
+        interface_values = [
+                str(value)
+                for interface in node.properties.interfaces.values()
+                for value in (
+                    interface.get("network_id"),
+                    interface.get("network_name"),
+                    *(interface.get("ip_addresses") or []),
+                    *(
+                        nested
+                        for subnet in (interface.get("subnets") or [])
+                        for nested in (
+                            subnet.get("id"), subnet.get("name"), subnet.get("cidr")
+                        )
+                    ),
+                )
+                if value
+            ]
+        router_interface_values = [
+                str(value)
+                for interface in node.properties.router_interfaces
+                for value in (
+                    interface.get("network_id"),
+                    interface.get("network_name"),
+                    interface.get("subnet_id"),
+                    interface.get("subnet_name"),
+                    interface.get("subnet_cidr"),
+                    interface.get("ip_address"),
+                )
+                if value
+            ]
+        return [
+            node.id, node.resource_id, node.name, node.project_id or "",
+            node.project_name or "", node.properties.cidr or "",
+            node.properties.gateway_ip or "", *node.properties.ips,
+            *node.properties.floating_ips, *node.properties.mac_addresses,
+            str(external_gateway.get("network_id") or ""),
+            str(external_gateway.get("network_name") or ""),
+            str(external_gateway.get("subnet_id") or ""),
+            str(external_gateway.get("subnet_name") or ""),
+            str(external_gateway.get("subnet_cidr") or ""),
+            str(external_gateway.get("ip_address") or ""),
+            *interface_values, *router_interface_values,
+        ]
+
     def search(self, query: str) -> list[dict]:
         """Search normalized names, UUIDs, projects, IPs, and subnet CIDRs."""
         if not self._current_topology:
@@ -417,24 +464,11 @@ class TopologySyncService:
         needle = query.strip().lower()
         if not needle:
             return []
-
-        matches = []
-        for node in self._current_topology.nodes:
-            searchable = [
-                node.id,
-                node.resource_id,
-                node.name,
-                node.project_id or "",
-                node.project_name or "",
-                node.properties.cidr or "",
-                node.properties.gateway_ip or "",
-                *node.properties.ips,
-                *node.properties.floating_ips,
-                *node.properties.mac_addresses,
-            ]
-            if any(needle in value.lower() for value in searchable):
-                matches.append(node.model_dump())
-        return matches
+        return [
+            node.model_dump()
+            for node in self._current_topology.nodes
+            if any(needle in value.lower() for value in self._searchable_values(node))
+        ]
 
     def get_topology(
         self,
@@ -514,12 +548,10 @@ class TopologySyncService:
             matched_node_ids = [
                 node.id
                 for node in nodes
-                if search_lower in node.name.lower()
-                or search_lower in node.resource_id.lower()
-                or (node.project_name and search_lower in node.project_name.lower())
-                or any(search_lower in ip.lower() for ip in node.properties.ips)
-                or any(search_lower in ip.lower() for ip in node.properties.floating_ips)
-                or (node.properties.cidr and search_lower in node.properties.cidr.lower())
+                if any(
+                    search_lower in value.lower()
+                    for value in self._searchable_values(node)
+                )
             ]
 
         # Get edges between remaining nodes

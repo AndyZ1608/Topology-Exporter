@@ -49,11 +49,26 @@ class TestRelationshipEngine:
             port_id="router-port-1",
         )
 
-        assert edge.id == "edge-router-router-1-network-1"
+        assert edge.id == "edge-router-router-1-router-port-1"
         assert edge.source == "network:network-1"
         assert edge.target == "router:router-1"
         assert edge.relationship == "router_interface"
         assert edge.properties.port_id == "router-port-1"
+
+    def test_router_interface_preserves_gateway_metadata(self, engine):
+        edge = engine.add_router_interface_relationship(
+            router_id="router-1",
+            network_id="network-1",
+            port_id="router-port-1",
+            properties={
+                "network_id": "network-1",
+                "subnet_id": "subnet-1",
+                "gateway_ip": "10.0.1.1",
+            },
+        )
+
+        assert edge.properties.gateway_ip == "10.0.1.1"
+        assert edge.properties.subnet_id == "subnet-1"
 
     def test_add_external_gateway_relationship(self, engine):
         """Test adding a router-to-external-network gateway."""

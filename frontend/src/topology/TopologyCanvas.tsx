@@ -39,9 +39,24 @@ function topologyEdge(edge: Edge): TopologyEdge {
 function matches(node: TopologyNode, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return false;
+  const externalGateway = node.properties.external_gateway;
+  const interfaceValues = Object.values(node.properties.interfaces || {}).flatMap((networkInterface) => [
+    networkInterface.network_id || '', networkInterface.network_name || '',
+    ...(networkInterface.ip_addresses || []),
+    ...(networkInterface.subnets || []).flatMap((subnet) => [subnet.id, subnet.name || '', subnet.cidr || '']),
+  ]);
+  const routerInterfaceValues = (node.properties.router_interfaces || []).flatMap((routerInterface) => [
+    routerInterface.network_id || '', routerInterface.network_name || '',
+    routerInterface.subnet_id || '', routerInterface.subnet_name || '',
+    routerInterface.subnet_cidr || '', routerInterface.ip_address || '',
+  ]);
   return [
     node.name, node.resource_id, node.project_name || '', node.properties.cidr || '',
     ...node.properties.ips, ...node.properties.floating_ips,
+    externalGateway?.network_id || '', externalGateway?.network_name || '',
+    externalGateway?.subnet_id || '', externalGateway?.subnet_name || '',
+    externalGateway?.subnet_cidr || '', externalGateway?.ip_address || '',
+    ...interfaceValues, ...routerInterfaceValues,
   ].some((value) => value.toLowerCase().includes(needle));
 }
 
